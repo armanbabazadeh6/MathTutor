@@ -16,6 +16,7 @@ import {
   xpForResult,
 } from "@/lib/session";
 import type { AssignmentState, GeneratedProblem, PracticeResult, ProblemAttempt } from "@/lib/session";
+import { ANSWER_INPUT_MODE, ANSWER_KEYPAD_CHARS, appendKeypadChar } from "@/lib/answerInput";
 import { generateProblem } from "@/lib/math/generators";
 import type { Problem } from "@/lib/math/types";
 import { DEFAULT_LEVEL, clampLevel, levelToDifficulty } from "@/lib/plan/levels";
@@ -121,7 +122,7 @@ export function ProblemPlayer({
       setError("Type your answer first!");
       return;
     }
-    const ok = checkAnswer(input, displayProblem.answer);
+    const ok = checkAnswer(input, displayProblem.answer, displayProblem.answerType);
     if (ok) {
       setStage("correct");
       setError("");
@@ -293,11 +294,28 @@ export function ProblemPlayer({
                   onKeyDown={(e) => {
                     if (e.key === "Enter") submit();
                   }}
-                  inputMode="decimal"
+                  inputMode={ANSWER_INPUT_MODE}
+                  autoComplete="off"
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  enterKeyHint="go"
                   autoFocus
                   placeholder="Type here…"
                   className="touch-target mt-2 w-full rounded-2xl border-2 border-line bg-white px-5 py-4 text-3xl font-extrabold outline-none focus:border-primary"
                 />
+                <div className="mt-2 flex gap-2" role="group" aria-label="Fraction keypad">
+                  {ANSWER_KEYPAD_CHARS.map((ch) => (
+                    <button
+                      key={ch}
+                      type="button"
+                      aria-label={ch === "/" ? "fraction bar" : `key ${ch}`}
+                      onClick={() => setInput((v) => appendKeypadChar(v, ch))}
+                      className="touch-target min-h-[48px] flex-1 rounded-2xl border-2 border-line bg-white text-2xl font-extrabold"
+                    >
+                      {ch}
+                    </button>
+                  ))}
+                </div>
                 {error ? (
                   <p className="mt-2 text-kid-base font-bold text-coral" role="alert">
                     {error}
@@ -372,7 +390,7 @@ function toMathProblem(p: GeneratedProblem): Problem {
     difficulty: "medium",
     text: p.prompt,
     answer: p.answer,
-    answerType: "text",
+    answerType: p.answerType,
     explanation: p.explanation,
     hint1: p.hint1,
     hint2: p.hint2,
@@ -389,6 +407,7 @@ function toGeneratedProblem(p: Problem): GeneratedProblem {
     skillName: skill?.name ?? p.skill,
     prompt: p.text,
     answer: p.answer,
+    answerType: p.answerType,
     hint1: "Look for the trick you just learned. 🕵️",
     hint2: "Try it step by step, like the lesson showed. 👣",
     explanation: p.explanation ?? "",

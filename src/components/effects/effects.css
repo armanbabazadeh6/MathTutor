@@ -137,7 +137,10 @@
   .mt-fade-slide,
   .mt-page-fade,
   .mt-burst-piece,
-  .mt-count-up {
+  .mt-count-up,
+  .mt-skeleton,
+  .mt-skeleton::after,
+  .mt-stagger-item {
     animation: none;
   }
   .mt-transition,

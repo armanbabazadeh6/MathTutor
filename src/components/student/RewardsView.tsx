@@ -186,7 +186,7 @@ export function RewardsView({
         {cheered ? <ConfettiBurst label="A prize is ready! Show a grown-up!" /> : null}
 
         <DuoCard title="Prize path" subtitle="Win stars. Unlock prizes.">
-          <ul className="flex flex-col gap-3">
+          <ul className="mt-stagger flex flex-col gap-3">
             {REWARD_GOALS.map((g) => {
               const status = statusFor(g, progress.xp, redemptions);
               const chip = STATUS_CHIP[status];
@@ -239,7 +239,7 @@ export function RewardsView({
               No prizes yet — ask a grown-up to set one up. 🎁
             </p>
           ) : (
-            <ul className="flex flex-col gap-3">
+            <ul className="mt-stagger flex flex-col gap-3">
               {prizes.map((reward) => (
                 <PrizeRow
                   key={reward.id}
@@ -254,7 +254,7 @@ export function RewardsView({
         </DuoCard>
 
         <DuoCard title="My badges" subtitle="Won on this device">
-          <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <ul className="mt-stagger grid grid-cols-1 gap-3 sm:grid-cols-2">
             {BADGES.map((b) => {
               const earned = progress.badges.includes(b.id);
               return (

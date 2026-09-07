@@ -32,7 +32,7 @@ export function BottomNav({
                 type="button"
                 onClick={() => onNavigate?.(item.id)}
                 aria-current={active ? "page" : undefined}
-                className={`touch-target flex w-full flex-col items-center gap-0.5 rounded-2xl px-2 py-1.5 font-display text-xs font-semibold uppercase tracking-wide transition-transform ${
+                className={`duo-press touch-target flex min-h-[56px] w-full flex-col items-center gap-0.5 rounded-2xl px-2 py-1.5 font-display text-xs font-semibold uppercase tracking-wide transition-transform ${
                   active ? "animate-duo-pop scale-105 text-primary" : "text-muted"
                 }`}
               >

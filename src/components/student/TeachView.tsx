@@ -6,6 +6,7 @@ import { DuoCard } from "@/components/duo/Card";
 import { ChunkyButton } from "@/components/duo/ChunkyButton";
 import { Character } from "@/components/duo/Character";
 import { grade } from "@/lib/math/grading";
+import { ANSWER_INPUT_MODE, ANSWER_KEYPAD_CHARS, appendKeypadChar } from "@/lib/answerInput";
 import type { Lesson } from "@/lib/teach/lessons";
 
 export function TeachView({
@@ -101,11 +102,30 @@ export function TeachView({
               onKeyDown={(e) => {
                 if (e.key === "Enter") check();
               }}
-              inputMode="decimal"
+              inputMode={ANSWER_INPUT_MODE}
               autoComplete="off"
+              autoCapitalize="off"
+              autoCorrect="off"
+              enterKeyHint="go"
               placeholder="Type your answer…"
               className="min-h-[64px] w-full rounded-2xl border-2 border-line bg-white px-5 text-2xl font-bold text-ink outline-none focus:border-primary"
             />
+            <div className="flex gap-2" role="group" aria-label="Fraction keypad">
+              {ANSWER_KEYPAD_CHARS.map((ch) => (
+                <button
+                  key={ch}
+                  type="button"
+                  aria-label={ch === "/" ? "fraction bar" : `key ${ch}`}
+                  onClick={() => {
+                    setInput((v) => appendKeypadChar(v, ch));
+                    setResult(null);
+                  }}
+                  className="min-h-[48px] flex-1 rounded-2xl border-2 border-line bg-white text-2xl font-bold text-ink"
+                >
+                  {ch}
+                </button>
+              ))}
+            </div>
             {result === true ? (
               <p
                 className="animate-duo-pop rounded-2xl border-2 border-primarydark bg-mint px-4 py-3 text-xl font-bold"

@@ -1,3 +1,6 @@
+"use client";
+
+import { tapTick } from "@/components/effects/haptics";
 export type LessonNodeState = "locked" | "current" | "done" | "chest";
 
 export type LessonNode = {
@@ -71,10 +74,13 @@ export function LessonPath({
           const big = n.state === "current";
           const size = big ? 84 : 68;
           return (
-            <div key={n.id} role="listitem" className="absolute" style={{ left: pts[i].x, top: pts[i].y, transform: "translate(-50%,-50%)" }}>
+            <div key={n.id} role="listitem" className="absolute mt-stagger-fade" style={{ left: pts[i].x, top: pts[i].y, transform: "translate(-50%,-50%)", animationDelay: `${Math.min(i, 8) * 60}ms` }}>
               <button
                 type="button"
-                onClick={() => onSelect?.(n.id)}
+                onClick={() => {
+                  tapTick();
+                  onSelect?.(n.id);
+                }}
                 disabled={n.state === "locked"}
                 aria-label={`${n.label} — ${n.state}`}
                 className={`duo-press duo-path-node flex items-center justify-center rounded-full ${big ? "animate-duo-bounce-soft" : ""}`}

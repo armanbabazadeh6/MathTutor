@@ -1,7 +1,8 @@
 "use client";
 
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { ConfettiBurst, CountUp, PageFade } from "@/components/effects";
+import { ConfettiBurst, CountUp, PageFade, levelUpBuzz, successBuzz } from "@/components/effects";
 import { BackButton } from "@/components/student/BackButton";
 import { DuoCard } from "@/components/duo/Card";
 import { ChunkyButton } from "@/components/duo/ChunkyButton";
@@ -24,6 +25,12 @@ export function ResultsView({
   const perfect = result.solved === result.total;
   const celebrate = perfect || newBadges.length > 0;
   const pose = perfect ? "cheer" : result.solved >= result.total / 2 ? "happy" : "think";
+  // Tactile-only: buzz once on mount for celebrations. No state, no behavior change.
+  useEffect(() => {
+    if (perfect) levelUpBuzz();
+    else if (celebrate) successBuzz();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   return (
     <PageFade>
       <div className="flex flex-col gap-5">
@@ -79,7 +86,7 @@ export function ResultsView({
         </DuoCard>
 
         <DuoCard title="How you did" subtitle="Right answers per group">
-          <ul className="flex flex-col gap-4">
+          <ul className="mt-stagger flex flex-col gap-4">
             {result.perDomain.map((d) => (
               <li key={d.domain}>
                 <ChunkyBar value={d.solved} max={d.total} label={`${d.domainName}: ${d.solved}/${d.total}`} />

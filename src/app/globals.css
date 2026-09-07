@@ -54,14 +54,80 @@ h1, h2, h3, .font-display {
 }
 
 .touch-target {
-  min-height: 48px;
-  min-width: 48px;
+  min-height: 56px;
+  min-width: 56px;
 }
 
 /* 4th-grader usability: primary actions are always at least 56px tall. */
 .mt-touch-56 {
   min-height: 56px;
   min-width: 56px;
+}
+
+/* ---- Touch motion utilities (iPad tap feel) ---- */
+
+/* Shimmer placeholder for quest/plan loading states. */
+.mt-skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--color-line);
+}
+.mt-skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.65), transparent);
+  animation: mt-shimmer 1400ms ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes mt-shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+/* Stagger-in for lists (path nodes, reward cards, topic tiles).
+   Set style={{ animationDelay: `${i * 60}ms` }} per item; delay caps at ~480ms. */
+.mt-stagger-item {
+  animation: mt-fade-slide 280ms ease-out both;
+  animation-delay: var(--mt-delay, 0ms);
+}
+@keyframes mt-fade-slide {
+  0% { transform: translateY(6px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+/* Opacity-only stagger for absolutely-positioned items (path nodes):
+   no transform, so it never fights positioning or press physics. */
+.mt-stagger-fade {
+  animation: mt-fade-only 300ms ease-out both;
+}
+@keyframes mt-fade-only {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+/* Container stagger: every direct child rises in with a capped delay.
+   Fill is backwards so press physics (:active scale) still win after entrance. */
+.mt-stagger > * {
+  animation: mt-fade-slide 280ms ease-out backwards;
+}
+.mt-stagger > *:nth-child(1) { animation-delay: 0ms; }
+.mt-stagger > *:nth-child(2) { animation-delay: 60ms; }
+.mt-stagger > *:nth-child(3) { animation-delay: 120ms; }
+.mt-stagger > *:nth-child(4) { animation-delay: 180ms; }
+.mt-stagger > *:nth-child(5) { animation-delay: 240ms; }
+.mt-stagger > *:nth-child(6) { animation-delay: 300ms; }
+.mt-stagger > *:nth-child(7) { animation-delay: 360ms; }
+.mt-stagger > *:nth-child(8) { animation-delay: 420ms; }
+.mt-stagger > *:nth-child(n+9) { animation-delay: 480ms; }
+
+/* Visible press physics for any tappable missing it. */
+.mt-press {
+  transition: transform 120ms ease-out;
+}
+.mt-press:active {
+  transform: scale(0.95);
 }
 
 /* ---- Chunky 3D building blocks ---- */
@@ -168,11 +234,18 @@ h1, h2, h3, .font-display {
   .animate-duo-bounce-soft,
   .animate-duo-float,
   .duo-shine-bar,
-  .duo-press {
+  .duo-press,
+  .mt-stagger-item,
+  .mt-stagger > *,
+  .mt-stagger-fade,
+  .mt-skeleton,
+  .mt-skeleton::after,
+  .mt-press {
     animation: none;
     transition: none;
   }
-  .duo-press:active {
+  .duo-press:active,
+  .mt-press:active {
     transform: none;
   }
 }

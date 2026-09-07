@@ -1,4 +1,7 @@
-import type { ButtonHTMLAttributes } from "react";
+"use client";
+
+import type { ButtonHTMLAttributes, PointerEvent } from "react";
+import { tapTick } from "@/components/effects/haptics";
 
 type Variant = "primary" | "secondary" | "accent" | "sky" | "coral" | "sunny";
 type Size = "sm" | "md" | "lg";
@@ -13,7 +16,7 @@ const skins: Record<Variant, { bg: string; border: string; text: string; shadow:
 };
 
 const sizes: Record<Size, string> = {
-  sm: "min-h-[44px] px-4 py-2 text-kid-sm",
+  sm: "min-h-[56px] px-4 py-2 text-kid-sm",
   md: "min-h-[56px] px-6 py-3 text-kid-lg",
   lg: "min-h-[64px] px-8 py-4 text-kid-xl",
 };
@@ -34,11 +37,17 @@ export function ChunkyButton({
   className = "",
   children,
   style,
+  onPointerDown,
   ...rest
 }: Props) {
   const skin = skins[variant];
+  const handlePointerDown = (e: PointerEvent<HTMLButtonElement>) => {
+    onPointerDown?.(e);
+    if (!e.defaultPrevented && !rest.disabled) tapTick();
+  };
   return (
     <button
+      onPointerDown={handlePointerDown}
       className={`duo-press touch-target inline-flex items-center justify-center gap-2 rounded-2xl font-display font-semibold uppercase tracking-wide ${sizes[size]} ${fullWidth ? "w-full" : ""} ${shine ? "duo-shine-wrap" : ""} ${className}`}
       style={{
         background: skin.bg,

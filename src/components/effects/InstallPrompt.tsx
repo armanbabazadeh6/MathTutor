@@ -37,18 +37,25 @@ function wasDismissed(): boolean {
 }
 
 /**
- * iPad Add-to-Home-Screen nudge. Shown once, dismissable,
+ * Pure gate for the iPad Add-to-Home-Screen nudge. Shown once, dismissable,
  * only when running in the browser (not standalone).
  */
+export function shouldShowInstallPrompt(opts: {
+  standalone: boolean;
+  dismissed: boolean;
+  isIPad: boolean;
+}): boolean {
+  return !opts.standalone && !opts.dismissed && opts.isIPad;
+}
+
 export function InstallPrompt() {
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
-    if (isStandalone() || wasDismissed()) return;
-    if (!isIPad()) return;
+    if (!shouldShowInstallPrompt({ standalone: isStandalone(), dismissed: wasDismissed(), isIPad: isIPad() }))
+      return;
     setVisible(true);
   }, []);
-
   const dismiss = () => {
     try {
       window.localStorage.setItem(INSTALL_DISMISSED_KEY, "1");
@@ -57,6 +64,8 @@ export function InstallPrompt() {
     }
     setVisible(false);
   };
+
+  if (!visible) return null;
 
   return (
     <div

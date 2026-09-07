@@ -5,5 +5,7 @@ export { ConfettiBurst } from "./ConfettiBurst";
 export { CountUp } from "./CountUp";
 export { ProgressRing } from "./ProgressRing";
 export { PageFade } from "./PageFade";
+export { Skeleton, ListSkeleton } from "./Skeleton";
+export { tapTick, successBuzz, levelUpBuzz } from "./haptics";
 export { SoundToggle } from "./SoundToggle";
 export { InstallPrompt } from "./InstallPrompt";
