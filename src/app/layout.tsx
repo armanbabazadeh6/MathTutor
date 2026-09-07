@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import "./globals.css";
 import { Fredoka, Nunito } from "next/font/google";
 import { ErrorGate } from "@/components/duo/ErrorGate";
 import { InstallPrompt } from "@/components/effects/InstallPrompt";
@@ -23,7 +24,6 @@ export const metadata: Metadata = {
   title: "MathTutor — 4th Grade Practice",
   description: "Warm, playful daily math practice for 4th graders.",
   manifest: "/manifest.webmanifest",
-  themeColor: "#58cc02",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
