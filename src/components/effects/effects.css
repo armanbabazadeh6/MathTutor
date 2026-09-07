@@ -1,0 +1,148 @@
+/* MathTutor polish effects — CSS-only animations (no JS libs, no layout shifts).
+   Subtle by design: short durations, small transforms, prefers-reduced-motion
+   disables everything. Import from the effect components or add the classes
+   directly to existing markup. */
+
+.mt-celebrate {
+  animation: mt-pop 420ms ease-out;
+}
+
+.mt-confetti-piece {
+  display: inline-block;
+  animation: mt-confetti-fall 900ms ease-in forwards;
+  opacity: 0;
+}
+
+.mt-shake {
+  animation: mt-gentle-shake 320ms ease-in-out;
+}
+
+.mt-streak {
+  display: inline-block;
+  animation: mt-streak-pulse 600ms ease-out;
+}
+
+.mt-page-fade {
+  animation: mt-page-in 280ms ease-out;
+}
+
+.mt-count-up {
+  display: inline-block;
+  font-variant-numeric: tabular-nums;
+}
+
+.mt-burst {
+  pointer-events: none;
+}
+
+.mt-burst-label {
+  font-size: 1.25rem;
+  font-weight: 800;
+}
+
+.mt-burst-field {
+  position: relative;
+  height: 56px;
+  pointer-events: none;
+  touch-action: none;
+}
+
+.mt-burst-piece {
+  position: absolute;
+  left: 50%;
+  top: 8px;
+  display: inline-block;
+  font-size: 1.75rem;
+  opacity: 0;
+  animation: mt-burst-fly 900ms ease-out forwards;
+  will-change: transform, opacity;
+}
+
+.mt-ring {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.mt-ring-svg {
+  display: block;
+}
+
+.mt-ring-track {
+  stroke: var(--color-line, #ece1d0);
+}
+
+.mt-ring-fill {
+  stroke: var(--color-primary, #2f7d62);
+  transition: stroke-dashoffset 700ms ease-out;
+}
+
+.mt-ring-text {
+  position: absolute;
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--color-ink, #2b2620);
+}
+ .mt-transition {
+   transition: opacity 160ms ease-out, transform 160ms ease-out;
+ }
+
+@keyframes mt-pop {
+  0% { transform: scale(0.92); opacity: 0.4; }
+  60% { transform: scale(1.02); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes mt-confetti-fall {
+  0% { transform: translateY(-6px) rotate(0deg); opacity: 1; }
+  100% { transform: translateY(14px) rotate(24deg); opacity: 0; }
+}
+
+@keyframes mt-gentle-shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-3px); }
+  50% { transform: translateX(3px); }
+  75% { transform: translateX(-2px); }
+}
+
+@keyframes mt-streak-pulse {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.18); }
+  100% { transform: scale(1); }
+}
+
+@keyframes mt-fade-slide {
+  0% { transform: translateY(6px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes mt-page-in {
+  0% { transform: translateY(8px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes mt-burst-fly {
+  0% { transform: translate(0, 0) scale(0.7) rotate(0deg); opacity: 1; }
+  70% { opacity: 1; }
+  100% { transform: translate(var(--mt-dx, 0px), var(--mt-dy, -56px)) scale(1) rotate(var(--mt-rot, 40deg)); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mt-celebrate,
+  .mt-confetti-piece,
+  .mt-shake,
+  .mt-streak,
+  .mt-fade-slide,
+  .mt-page-fade,
+  .mt-burst-piece,
+  .mt-count-up {
+    animation: none;
+  }
+  .mt-transition,
+  .mt-ring-fill {
+    transition: none;
+  }
+}
+

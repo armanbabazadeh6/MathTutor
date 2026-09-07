@@ -1,0 +1,178 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Bright kid-friendly palette — original, no third-party assets. */
+  --color-cream: #fff8ea;
+  --color-card: #ffffff;
+  --color-ink: #3f3a32;
+  --color-muted: #8a7d6b;
+  --color-line: #f0e3cb;
+  --color-primary: #58cc02;
+  --color-primary-dark: #46a302;
+  --color-primary-deep: #2f7d62;
+  --color-accent: #ff9600;
+  --color-accent-dark: #e07f00;
+  --color-sunny: #ffc800;
+  --color-sunny-dark: #e0a800;
+  --color-mint: #d7ffb8;
+  --color-coral: #ff5c5c;
+  --color-coral-dark: #d33131;
+  --color-sky: #1cb0f6;
+  --color-sky-dark: #1899d6;
+  --color-grape: #ce82ff;
+  --color-grape-dark: #a568cc;
+  --radius-card: 1.5rem;
+  --radius-chunky: 1.25rem;
+  --radius-pill: 999px;
+  --font-display: "Fredoka", "Nunito", ui-rounded, system-ui, sans-serif;
+  --font-body: "Nunito", ui-rounded, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --chunky-shadow: rgba(63, 58, 50, 0.16);
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: var(--color-cream);
+  color: var(--color-ink);
+  font-family: var(--font-body);
+  font-size: 17px;
+  line-height: 1.55;
+}
+
+/* Big type scale for kids — display font on headings. */
+h1, h2, h3, .font-display {
+  font-family: var(--font-display);
+  letter-spacing: 0.01em;
+}
+
+.touch-target {
+  min-height: 48px;
+  min-width: 48px;
+}
+
+/* 4th-grader usability: primary actions are always at least 56px tall. */
+.mt-touch-56 {
+  min-height: 56px;
+  min-width: 56px;
+}
+
+/* ---- Chunky 3D building blocks ---- */
+
+.duo-chunk {
+  border-radius: var(--radius-chunky);
+  border: 2px solid var(--color-line);
+  background: var(--color-card);
+  box-shadow: 0 4px 0 var(--chunky-shadow);
+}
+
+.duo-press {
+  transition: transform 80ms ease-out, box-shadow 80ms ease-out, filter 120ms ease-out;
+  will-change: transform;
+}
+.duo-press:active {
+  transform: translateY(4px);
+  box-shadow: 0 0 0 var(--chunky-shadow);
+}
+.duo-press:disabled {
+  transform: none;
+  filter: grayscale(0.5) opacity(0.6);
+  cursor: not-allowed;
+}
+
+/* Shine sweep for celebratory buttons/cards. */
+.duo-shine-wrap {
+  position: relative;
+  overflow: hidden;
+}
+.duo-shine-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 40%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+  animation: duo-shine 1600ms ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* Winding lesson path connector. */
+.duo-path-node {
+  transition: transform 160ms ease-out;
+}
+.duo-path-node:active {
+  transform: scale(0.92);
+}
+
+/* Calm screen entrance for student pages (pair with PageFade). */
+.mt-page {
+  animation: mt-g-rise 260ms ease-out;
+}
+
+@keyframes mt-g-rise {
+  0% { transform: translateY(8px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes mt-g-glow {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.04); }
+}
+
+.mt-glow {
+  animation: mt-g-glow 1600ms ease-in-out infinite;
+}
+
+@keyframes duo-pop {
+  0% { transform: scale(0.6); opacity: 0; }
+  60% { transform: scale(1.08); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes duo-wiggle {
+  0%, 100% { transform: rotate(-3deg); }
+  50% { transform: rotate(3deg); }
+}
+
+@keyframes duo-bounce-soft {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+
+@keyframes duo-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+
+@keyframes duo-shine {
+  0% { transform: translateX(-100%) skewX(-20deg); }
+  100% { transform: translateX(220%) skewX(-20deg); }
+}
+
+.animate-duo-pop { animation: duo-pop 300ms ease-out both; }
+.animate-duo-wiggle { animation: duo-wiggle 480ms ease-in-out; }
+.animate-duo-bounce-soft { animation: duo-bounce-soft 900ms ease-in-out infinite; }
+.animate-duo-float { animation: duo-float 2600ms ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .mt-page,
+  .mt-glow,
+  .animate-duo-pop,
+  .animate-duo-wiggle,
+  .animate-duo-bounce-soft,
+  .animate-duo-float,
+  .duo-shine-bar,
+  .duo-press {
+    animation: none;
+    transition: none;
+  }
+  .duo-press:active {
+    transform: none;
+  }
+}
