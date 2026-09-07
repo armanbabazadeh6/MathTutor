@@ -4,6 +4,7 @@ import { DEFAULT_LEVEL, DEFAULT_MASTERY, levelToDifficulty } from "./levels";
 import type { LevelsMap, SkillLevel } from "./levels";
 import { applyRulesForSkill, groupBySkill } from "./rules";
 import type { SkillHistoryEntry } from "./rules";
+import { domainGraduationStatus, grade5SkillsForDomain } from "./graduation";
 
 /** Persisted plan format version. Bump on breaking shape changes. */
 export const PLAN_VERSION = 1;
@@ -21,8 +22,9 @@ export const MAX_WEAK_ITEMS = 3;
 export const MAX_REVIEW_ITEMS = 2;
 /** Cap on challenge items. */
 export const MAX_CHALLENGE_ITEMS = 2;
-
-export type PlanReason = "reteach" | "today" | "weak" | "review" | "challenge";
+/** Cap on grade-5 unlock items (one per graduated domain, at most this many). */
+export const MAX_GRADE5_ITEMS = 3;
+export type PlanReason = "reteach" | "today" | "weak" | "review" | "challenge" | "grade5";
 
 export interface PlanItem {
   skillId: string;
@@ -111,24 +113,40 @@ export function buildPlan(input: BuildPlanInput = {}): Plan {
     lastSeen.set(e.skillId, i);
   });
 
-  const weakestFirst = [...SKILLS].sort((a, b) => {
+  // Grade-5 skills stay out of the queue until their domain graduates (acing
+  // 4th grade unlocks 5th grade domain by domain). Levels/mastery above cover
+  // every skill so serialization still round-trips grade-5 state.
+  const ALL_DOMAINS = ["operations-algebraic", "base-ten", "fractions", "measurement-data", "geometry"] as const;
+  const graduatedList = ALL_DOMAINS.filter((d) => domainGraduationStatus(d, levels, mastery).graduated);
+  const graduatedBy: Record<string, true> = {};
+  for (const d of graduatedList) graduatedBy[d] = true;
+  const eligible = SKILLS.filter((s) => s.grade === 4 || graduatedBy[s.domain]);
+  const weakestFirst = [...eligible].sort((a, b) => {
     const d = (mastery[a.id] ?? DEFAULT_MASTERY) - (mastery[b.id] ?? DEFAULT_MASTERY);
     return d !== 0 ? d : a.id.localeCompare(b.id);
   });
   const todayId =
-    input.todayTopic && levels[input.todayTopic] !== undefined
+    input.todayTopic && eligible.some((s) => s.id === input.todayTopic)
       ? input.todayTopic
       : weakestFirst[0].id;
-  const leastRecentFirst = [...SKILLS].sort((a, b) => {
+  const leastRecentFirst = [...eligible].sort((a, b) => {
     const ia = lastSeen.has(a.id) ? (lastSeen.get(a.id) as number) : -1;
     const ib = lastSeen.has(b.id) ? (lastSeen.get(b.id) as number) : -1;
     if (ia !== ib) return ia - ib;
     return (mastery[b.id] ?? 0) - (mastery[a.id] ?? 0);
   });
-  const strongestFirst = [...SKILLS].sort((a, b) => {
+  const strongestFirst = [...eligible].sort((a, b) => {
     const d = (mastery[b.id] ?? 0) - (mastery[a.id] ?? 0);
     return d !== 0 ? d : a.id.localeCompare(b.id);
   });
+  // One headliner per graduated domain: its weakest grade-5 skill. Levels keep
+  // the same 1-5 ladder inside grade-5 skills.
+  const grade5Headliners = graduatedList.slice().sort()
+    .flatMap((d) => grade5SkillsForDomain(d))
+    .map((id) => SKILLS.find((s) => s.id === id)!)
+    .filter(Boolean)
+    .sort((a, b) => (mastery[a!.id] ?? DEFAULT_MASTERY) - (mastery[b!.id] ?? DEFAULT_MASTERY))
+    .slice(0, MAX_GRADE5_ITEMS);
 
   const queue: PlanItem[] = [];
   const counts: Record<string, number> = {};
@@ -153,6 +171,21 @@ export function buildPlan(input: BuildPlanInput = {}): Plan {
     },
     size,
   );
+
+  for (const s of grade5Headliners) {
+    if (queue.length >= size) break;
+    pushCapped(
+      queue,
+      counts,
+      {
+        skillId: s!.id,
+        level: levels[s!.id],
+        difficulty: levelToDifficulty(levels[s!.id]),
+        reason: "grade5",
+      },
+      size,
+    );
+  }
 
   for (const s of weakestFirst.slice(0, MAX_WEAK_ITEMS)) {
     if (queue.length >= size) break;

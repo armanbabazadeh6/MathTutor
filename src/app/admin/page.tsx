@@ -1,5 +1,6 @@
 import { AdminGate } from "@/components/admin/AdminGate";
 import { Dashboard } from "@/components/admin/Dashboard";
+import { QuestControls } from "@/components/admin/QuestControls";
 import { DuoCard } from "@/components/duo/Card";
 
 /**
@@ -16,6 +17,7 @@ export default function AdminPage() {
           </p>
         </DuoCard>
         <Dashboard />
+        <QuestControls />
       </main>
     </AdminGate>
   );

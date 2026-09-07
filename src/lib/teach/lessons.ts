@@ -465,6 +465,281 @@ function lessonRounding(p: Problem): LessonStep[] {
   ];
 }
 
+function lessonAddUnlike(p: Problem): LessonStep[] {
+  const m = p.text.match(/(\d+)\/(\d+)\s*\+\s*(\d+)\/(\d+)/);
+  const nums = allNumbers(p.text);
+  const a = m ? Number(m[1]) : (nums[0] ?? 0);
+  const d1 = m ? Number(m[2]) : (nums[1] ?? 1);
+  const b = m ? Number(m[3]) : (nums[2] ?? 0);
+  const d2 = m ? Number(m[4]) : (nums[3] ?? 1);
+  const den = d1 * d2;
+  const t1 = a * d2;
+  const t2 = b * d1;
+  return [
+    step(
+      "Different bottoms can't add yet",
+      `Your problem is ${a}/${d1} + ${b}/${d2}. The slices are different sizes (${d1}ths vs ${d2}ths), so first rebuild both with one shared bottom: ${d1} × ${d2} = ${den}.`,
+      "text",
+      [a, d1, b, d2],
+    ),
+    step(
+      "Rebuild each fraction",
+      `${a}/${d1} = ${t1}/${den} (top and bottom both × ${d2}) and ${b}/${d2} = ${t2}/${den} (top and bottom both × ${d1}). Same amount of pie, new slice sizes.`,
+      "break-apart",
+      [a, d1, b, d2, den],
+    ),
+    step(
+      "Add only the new tops",
+      `${t1} + ${t2} = ${t1 + t2}, so you get ${t1 + t2}/${den}. The shared bottom (${den}) stays — never add the bottoms. Simplify if top and bottom share a factor.`,
+      "break-apart",
+      [a, b, den, t1 + t2],
+    ),
+    tryItStep(p, [a, d1, b, d2]),
+  ];
+}
+
+function lessonSubUnlike(p: Problem): LessonStep[] {
+  const m = p.text.match(/(\d+)\/(\d+)\s*-\s*(\d+)\/(\d+)/);
+  const nums = allNumbers(p.text);
+  const a = m ? Number(m[1]) : (nums[0] ?? 0);
+  const d1 = m ? Number(m[2]) : (nums[1] ?? 1);
+  const b = m ? Number(m[3]) : (nums[2] ?? 0);
+  const d2 = m ? Number(m[4]) : (nums[3] ?? 1);
+  const den = d1 * d2;
+  const t1 = a * d2;
+  const t2 = b * d1;
+  return [
+    step(
+      "Different bottoms can't subtract yet",
+      `Your problem is ${a}/${d1} − ${b}/${d2}. The slices are different sizes (${d1}ths vs ${d2}ths), so first rebuild both with one shared bottom: ${d1} × ${d2} = ${den}.`,
+      "text",
+      [a, d1, b, d2],
+    ),
+    step(
+      "Rebuild each fraction",
+      `${a}/${d1} = ${t1}/${den} (top and bottom both × ${d2}) and ${b}/${d2} = ${t2}/${den} (top and bottom both × ${d1}). Same amount of pie, new slice sizes.`,
+      "break-apart",
+      [a, d1, b, d2, den],
+    ),
+    step(
+      "Subtract only the new tops",
+      `${t1} − ${t2} = ${t1 - t2}, so you get ${t1 - t2}/${den}. The shared bottom (${den}) stays — never subtract the bottoms. Simplify if top and bottom share a factor.`,
+      "break-apart",
+      [a, b, den, t1 - t2],
+    ),
+    tryItStep(p, [a, d1, b, d2]),
+  ];
+}
+
+function lessonMultWholeAdv(p: Problem): LessonStep[] {
+  const m = p.text.match(/(\d+)\/(\d+)\s*×\s*(\d+)/);
+  const nums = allNumbers(p.text);
+  const a = m ? Number(m[1]) : (nums[0] ?? 0);
+  const d = m ? Number(m[2]) : (nums[1] ?? 1);
+  const w = m ? Number(m[3]) : (nums[2] ?? 0);
+  const top = a * w;
+  return [
+    step(
+      "See it as copies",
+      `${a}/${d} × ${w} means ${w} copies of ${a}/${d}. Picture ${w} plates, each holding ${a} out of ${d} slices — how many slices is that altogether?`,
+      "text",
+      [a, d, w],
+    ),
+    step(
+      "Multiply only the top",
+      `Copies pile up slices but never change the slice size: (${a} × ${w})/${d} = ${top}/${d}. The bottom stays ${d} — only the top grows.`,
+      "break-apart",
+      [a, d, w, top],
+    ),
+    step(
+      "Simplify, and spill past one whole if you can",
+      `Look at ${top}/${d}: if the top is as big as the bottom, that is a whole or more. Divide top and bottom by any shared factor to finish.`,
+      "text",
+      [a, d, w, top],
+    ),
+    tryItStep(p, [a, d, w]),
+  ];
+}
+
+function lessonDecAddSub(p: Problem): LessonStep[] {
+  const m = p.text.match(/([\d.]+)\s*([+-])\s*([\d.]+)/);
+  const nums = allNumbers(p.text);
+  const x = m ? Number(m[1]) : (nums[0] ?? 0);
+  const op = m ? m[2] : "+";
+  const y = m ? Number(m[3]) : (nums[1] ?? 0);
+  const plus = op === "+";
+  const cx = Math.round(x * 100);
+  const cy = Math.round(y * 100);
+  return [
+    step(
+      "Line up the dots",
+      `Your numbers are ${x} and ${y}. Stack them with the decimal points lined up — tenths under tenths, hundredths under hundredths. Lined-up dots keep every place value honest.`,
+      "number-line",
+      [x, y],
+    ),
+    step(
+      plus ? "Add hundredths, then tenths" : "Subtract hundredths, then tenths",
+      `Think in hundredths: ${x} is ${cx} hundredths and ${y} is ${cy} hundredths. ${cx} ${op} ${cy} = ${plus ? cx + cy : cx - cy} hundredths — plain whole-number work once the dots line up.`,
+      "break-apart",
+      [x, y, cx, cy],
+    ),
+    step(
+      "Drop the point straight down",
+      `The answer's decimal point sits exactly under the lined-up points of ${x} and ${y}. ${plus ? "Carry" : "Borrow"} between columns exactly like whole numbers, then place the point.`,
+      "number-line",
+      [x, y],
+    ),
+    tryItStep(p, [x, y]),
+  ];
+}
+
+function lessonDecMultPow10(p: Problem): LessonStep[] {
+  const m = p.text.match(/([\d.]+)\s*×\s*(\d+)/);
+  const nums = allNumbers(p.text);
+  const x = m ? Number(m[1]) : (nums[0] ?? 0);
+  const k = m ? Number(m[2]) : (nums[1] ?? 10);
+  const zeros = String(k).length - 1;
+  const places = zeros === 1 ? "one place" : `${zeros} places`;
+  const cents = Math.round(x * 100);
+  return [
+    step(
+      `Multiplying by ${k} shifts every digit`,
+      `Your problem is ${x} × ${k}. Multiplying by ${k} makes every digit ${k}× bigger, so the point slides ${places} to the right. No column work needed — just shift.`,
+      "text",
+      [x, k],
+    ),
+    step(
+      "See it as hundredths",
+      `${x} is ${cents} hundredths. ${cents} × ${k} = ${cents * k} hundredths — whole-number multiplication with no point to lose track of.`,
+      "break-apart",
+      [x, k, cents],
+    ),
+    step(
+      "Shift the point and read it",
+      `Slide each digit of ${x} left by ${places}: the point lands ${places} to the right. Read the new number — that shift IS the multiplication by ${k}.`,
+      "number-line",
+      [x, k],
+    ),
+    tryItStep(p, [x, k]),
+  ];
+}
+
+function lessonVolume(p: Problem): LessonStep[] {
+  const m = p.text.match(/(\d+)\s*cm long,\s*(\d+)\s*cm wide,\s*and\s*(\d+)\s*cm tall/);
+  const nums = allNumbers(p.text);
+  const l = m ? Number(m[1]) : (nums[0] ?? 0);
+  const w = m ? Number(m[2]) : (nums[1] ?? 0);
+  const h = m ? Number(m[3]) : (nums[2] ?? 0);
+  const base = l * w;
+  return [
+    step(
+      "Volume counts cubes",
+      `Your box is ${l} cm by ${w} cm by ${h} cm. Volume asks: how many 1-cm cubes fill it? Start with the flat bottom layer.`,
+      "text",
+      [l, w, h],
+    ),
+    step(
+      "Cover the bottom layer",
+      `One layer holds ${l} × ${w} = ${base} cubes — a full rectangle of cubes, one cube tall. Count that flat layer first.`,
+      "break-apart",
+      [l, w, h, base],
+    ),
+    step(
+      "Stack the layers",
+      `There are ${h} layers of ${base}. Volume = ${base} × ${h} — and the answer is in cubic centimeters (cubes, not flat squares).`,
+      "break-apart",
+      [l, w, h, base],
+    ),
+    tryItStep(p, [l, w, h]),
+  ];
+}
+
+function lessonOrderOps(p: Problem): LessonStep[] {
+  const mp = p.text.match(/\((\d+)\s*\+\s*(\d+)\)\s*×\s*(\d+)/);
+  if (mp) {
+    const a = Number(mp[1]);
+    const b = Number(mp[2]);
+    const c = Number(mp[3]);
+    const s = a + b;
+    return [
+      step(
+        "Parentheses always go first",
+        `Your problem is (${a} + ${b}) × ${c}. The parentheses are a "do me first" box — nothing outside the box may jump the line.`,
+        "text",
+        [a, b, c],
+      ),
+      step(
+        "Solve inside the box",
+        `(${a} + ${b}) = ${s}. Cover the box with ${s} and the problem shrinks to just ${s} × ${c}.`,
+        "break-apart",
+        [a, b, c, s],
+      ),
+      step(
+        "Finish the multiplication",
+        `Now multiply ${s} × ${c} to finish — that last product is the whole answer. Parentheses first, then ×.`,
+        "text",
+        [a, b, c, s],
+      ),
+      tryItStep(p, [a, b, c]),
+    ];
+  }
+  const m = p.text.match(/(\d+)\s*\+\s*(\d+)\s*×\s*(\d+)/);
+  const nums = allNumbers(p.text);
+  const a = m ? Number(m[1]) : (nums[0] ?? 0);
+  const b = m ? Number(m[2]) : (nums[1] ?? 0);
+  const c = m ? Number(m[3]) : (nums[2] ?? 0);
+  const prod = b * c;
+  return [
+    step(
+      "Multiplication outranks addition",
+      `Your problem is ${a} + ${b} × ${c}. × beats + — the multiplication owns its neighbors first, no matter that + comes first on the page.`,
+      "text",
+      [a, b, c],
+    ),
+    step(
+      "Do the × part first",
+      `${b} × ${c} = ${prod}. Cover that with ${prod} and the problem shrinks to ${a} + ${prod} — one easy addition left.`,
+      "break-apart",
+      [a, b, c, prod],
+    ),
+    step(
+      "Add last",
+      `Finish with ${a} + ${prod}. Adding first would give the wrong answer — order matters, so × always goes before +.`,
+      "text",
+      [a, b, c, prod],
+    ),
+    tryItStep(p, [a, b, c]),
+  ];
+}
+
+function lessonCoordPlane(p: Problem): LessonStep[] {
+  const m = p.text.match(/is\s+(\d+)\s+units to the right and\s+(\d+)\s+units up/);
+  const nums = allNumbers(p.text);
+  const x = m ? Number(m[1]) : (nums[0] ?? 0);
+  const y = m ? Number(m[2]) : (nums[1] ?? 0);
+  return [
+    step(
+      "x counts the walk right",
+      `Point A is ${x} right and ${y} up from (0, 0). The FIRST number (x) always counts steps right along the floor — so x = ${x}.`,
+      "text",
+      [x, y],
+    ),
+    step(
+      "y counts the climb up",
+      `The SECOND number (y) counts steps up the wall: ${y} up means y = ${y}. Right first, up second — that order never swaps.`,
+      "number-line",
+      [x, y],
+    ),
+    step(
+      "Walk it from the origin",
+      `Start at (0, 0): march right ${x} to (${x}, 0), then climb up ${y} to (${x}, ${y}). Coordinates are written x, y — floor steps, then wall steps.`,
+      "break-apart",
+      [x, y],
+    ),
+    tryItStep(p, [x, y]),
+  ];
+}
+
 function lessonFallback(p: Problem): LessonStep[] {
   const nums = allNumbers(p.text + " " + p.answer);
   const shown = nums.length ? nums : [0];
@@ -509,6 +784,14 @@ const BUILDERS: Record<string, (p: Problem) => LessonStep[]> = {
   "md-perimeter": lessonPerimeter,
   "bt-place-value": lessonPlaceValue,
   "bt-rounding": lessonRounding,
+  "fr-add-unlike-5": lessonAddUnlike,
+  "fr-sub-unlike-5": lessonSubUnlike,
+  "fr-mult-whole-adv": lessonMultWholeAdv,
+  "bt-dec-add-sub": lessonDecAddSub,
+  "bt-dec-mult-pow10": lessonDecMultPow10,
+  "md-volume": lessonVolume,
+  "oa-order-ops": lessonOrderOps,
+  "geo-coord-plane": lessonCoordPlane,
 };
 
 const TITLES: Record<string, string> = {
@@ -526,6 +809,14 @@ const TITLES: Record<string, string> = {
   "md-perimeter": "Perimeter: walking the edges",
   "bt-place-value": "Place value: every digit has an address",
   "bt-rounding": "Rounding to the nearest neighbor",
+  "fr-add-unlike-5": "Adding fractions with different bottoms",
+  "fr-sub-unlike-5": "Subtracting fractions with different bottoms",
+  "fr-mult-whole-adv": "Multiplying a fraction by a whole number",
+  "bt-dec-add-sub": "Adding and subtracting decimals",
+  "bt-dec-mult-pow10": "Multiplying decimals by 10, 100, 1000",
+  "md-volume": "Volume: counting cubes",
+  "oa-order-ops": "Order of operations: what goes first",
+  "geo-coord-plane": "Coordinates: right first, then up",
 };
 
 export const LESSON_SKILLS: string[] = Object.keys(BUILDERS);

@@ -101,3 +101,30 @@ Gamification rules, server-only AI provider, and CSS-only polish effects landed 
 - Verify: `npx tsc --noEmit` exit 0; `npm test` 163/163 pass; `npm run build` passes;
   dev curl `/` `/profiles` `/profile` 200; throwaway tsx sim (deleted): two profiles with
   isolated progress/points/plan ledgers, photo guard + backup export/import round-trip. SIM OK.
+
+## Daily quest loop + grade-5 unlocks (2026-09-07)
+
+- `src/lib/session.ts` (quest state, extended — imports quest/plan/sound-adjacent libs, never duplicates):
+  per-profile `mt.quest.v1` doc (`getDailyQuest` stable intraday via `resolveDailyQuest`, locked at first
+  `startDailyQuest`, `questToAssignment` mints 1:1 deterministic problems with weakest-supported fallback for
+  generator-less skills, `regenerateDailyQuest` needs a non-empty parent reason and clears stale quest work).
+  `recordResult(result, pid, { quest })` on a full solve pays the canonical quest bonus + streak
+  (`awardQuestCompletion`) and marks the quest done; partial quests and free-pick extra practice use
+  `{ countStreak: false }` (progress + standard completion points save, streak frozen via `awardPointsNoStreak`).
+  `recordGradedAttempt` / `recordReteachOutcome` take the same opt so effort stars never move the streak alone.
+  Grade locks: per-profile `mt.gradeOverrides.v1` (`get/setGradeOverride`) applied in `gradeViews()` /
+  `globalGradeView()`; `mt.celebratedGraduations.v1` tracks fanned graduations so each fires once.
+- Today (`src/app/page.tsx`): Daily Quest card (title, N problems, bonus, Start/Resume/play-again, cheer on
+  done) + free-pick relabeled "Extra practice (optional)" with `QUEST_ASSIGNMENT_NOTE`. `/practice` routes
+  completion: full quest solve -> bonus + streak, else streak-free save. `ProblemPlayer` threads the same flag.
+- `/plan`: "Grade climb" card (per-domain qualifying/total, avg level/mastery, graduation + grade-5 count,
+  grown-up-pick marker; global Fifth Grade X/3 line) + first-sight celebration overlay (`ConfettiBurst` +
+  cheering `Character` + `sound().playFanfare()`, replayable via the Hooray button).
+- `/admin`: new `QuestControls` (quest viewer with item reasons/levels, rebuild-with-reason, per-domain
+  Lock/Open/Auto grade locks) mounted below `Dashboard`; `Dashboard.tsx` untouched.
+- Decision log: per-problem first-try/level-up stars always count (effort); only the day streak + quest bonus
+  gate on full quest completion. First activity of the day still takes the auto daily bonus through
+  `awardPoints`, so the quest bonus can stack +5 on days with prior extra practice (generous, deterministic).
+- Verify: `npx tsc --noEmit` exit 0; `npm test` 244/244 pass; `npm run build` passes;
+  dev curl `/` `/plan` `/practice` `/admin` 200; throwaway tsx sim (deleted): intraday quest stability +
+  lock, ace-a-domain -> grade-5 items + celebration keys, quest bonus + streak math, two-profile isolation. SIM OK.

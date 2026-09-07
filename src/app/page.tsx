@@ -14,11 +14,18 @@ import { StudentNav } from "@/components/student/StudentNav";
 import { TopicGrid } from "@/components/student/TopicGrid";
 import { QuickStart } from "@/components/student/QuickStart";
 import {
+  QUEST_ASSIGNMENT_PREFIX,
+  QUEST_ASSIGNMENT_NOTE,
+  getDailyQuest,
   generateAssignment,
+  isQuestDoneToday,
+  loadAssignment,
   loadPlanSession,
   loadProgress,
   saveAssignment,
+  startDailyQuest,
 } from "@/lib/session";
+import type { Quest } from "@/lib/session";
 import { getActiveProfile, loadProfiles, migrateLegacyOnce } from "@/lib/profile/store";
 import { SKILL_DOMAINS, SKILLS } from "@/lib/skills";
 import type { SkillDomain } from "@/lib/skills";
@@ -49,6 +56,9 @@ export default function Home() {
   const [customTopic, setCustomTopic] = useState("");
   const [error, setError] = useState("");
   const [sheet, setSheet] = useState<SkillDomain | null>(null);
+  const [quest, setQuest] = useState<Quest | null>(null);
+  const [questDone, setQuestDone] = useState(false);
+  const [questResumable, setQuestResumable] = useState(false);
   // Entry gate: legacy progress migrates once, then kids without an active
   // profile land on the /profiles picker. Switching kids in /profiles pushes
   // back here, remounting Home so progress/plan/points reload for that kid.
@@ -71,6 +81,18 @@ export default function Home() {
     }
     setReady(true);
   }, [router]);
+  useEffect(() => {
+    if (!ready) return;
+    try {
+      const q = getDailyQuest();
+      setQuest(q);
+      setQuestDone(isQuestDoneToday(q.id));
+      const saved = loadAssignment();
+      setQuestResumable(!!saved && saved.id === `${QUEST_ASSIGNMENT_PREFIX}${q.id}`);
+    } catch {
+      setQuest(null);
+    }
+  }, [ready]);
   const progress = useMemo(() => loadProgress(), []);
   const planSkills = useMemo(() => {
     try {
@@ -103,6 +125,20 @@ export default function Home() {
     const assignment = generateAssignment([d], "", 10);
     saveAssignment(assignment);
     setSheet(null);
+    router.push("/practice");
+  };
+  const startQuestRun = () => {
+    // Quest is THE assignment: lock it at first start, mint its problems,
+    // and practice consumes those items. Same quest all day.
+    if (questResumable) {
+      router.push("/practice");
+      return;
+    }
+    try {
+      startDailyQuest();
+    } catch {
+      /* practice page shows its empty state when storage is unavailable */
+    }
     router.push("/practice");
   };
 
@@ -162,6 +198,28 @@ export default function Home() {
       <PageFade>
         <div className="flex flex-col gap-5">
           <QuickStart />
+          {/* Daily Quest: THE assignment — same quest all day, bonus + streak on completion */}
+          {quest ? (
+            <DuoCard
+              title={`Today's quest: ${quest.questTitle}`}
+              subtitle={
+                questDone
+                  ? "Quest complete — see you tomorrow! 🎉"
+                  : `${quest.items.length} problems · +${quest.bonusRewardPts} pts bonus · keeps your streak going 🔥`
+              }
+              icon={
+                <Character
+                  pose={questDone ? "cheer" : "happy"}
+                  size={72}
+                  label={questDone ? "Mascot cheering your finished quest" : "Mascot ready for today's quest"}
+                />
+              }
+            >
+              <ChunkyButton size="lg" fullWidth shine onClick={startQuestRun}>
+                {questDone ? "Play it again 🔁" : questResumable ? "Keep going! ▶" : "Start today's quest 🚀"}
+              </ChunkyButton>
+            </DuoCard>
+          ) : null}
 
           {/* Header: streak + gems */}
           <header className="flex flex-col gap-3">
@@ -187,8 +245,8 @@ export default function Home() {
             <LessonPath nodes={nodes} onSelect={onSelectNode} />
           </DuoCard>
 
-          {/* Topic picker stays reachable below the path */}
-          <DuoCard title="What did you learn?" subtitle="Tap one or more topics">
+          {/* Free-pick stays reachable as optional extra practice — never replaces the quest */}
+          <DuoCard title="Extra practice (optional)" subtitle="Pick any topic just for fun">
             <div className="flex flex-col gap-4">
               <TopicGrid selected={selected} onToggle={toggle} />
               <div>
@@ -208,8 +266,9 @@ export default function Home() {
                   {error}
                 </p>
               ) : null}
+              <p className="text-kid-sm font-semibold text-muted">{QUEST_ASSIGNMENT_NOTE}</p>
               <ChunkyButton onClick={start} size="lg" fullWidth shine>
-                Start · 10 problems 🚀
+                Start extra practice · 10 problems 🚀
               </ChunkyButton>
             </div>
           </DuoCard>

@@ -301,6 +301,176 @@ function genRounding(rng: Rng): Problem {
   );
 }
 
+/* ---------- Grade 5 ---------- */
+
+/* 15. Add fractions, unlike denominators */
+function genAddUnlike(rng: Rng): Problem {
+  let d1 = int(rng, 2, 8);
+  let d2 = int(rng, 2, 8);
+  if (d2 === d1) d2 = (d1 % 8) + 1;
+  const a = int(rng, 1, d1 - 1);
+  const b = int(rng, 1, d2 - 1);
+  const num = a * d2 + b * d1;
+  const den = d1 * d2;
+  const g = gcd(num, den);
+  const answer = g > 1 ? `${num / g}/${den / g}` : `${num}/${den}`;
+  return build(
+    rng, "fr-add-unlike-5", "medium", "fraction",
+    `What is ${a}/${d1} + ${b}/${d2}? Give your answer as a fraction.`,
+    answer,
+    `First make the bottoms match: use ${den} as a common denominator (${d1} × ${d2}).`,
+    `Convert: ${a}/${d1} = ${a * d2}/${den} and ${b}/${d2} = ${b * d1}/${den}, then add the tops.`,
+    `${a}/${d1} + ${b}/${d2} = ${a * d2}/${den} + ${b * d1}/${den} = ${num}/${den} = ${answer}. Rewrite with common denominator ${den}, add numerators${g > 1 ? ", and simplify" : ""}.`,
+  );
+}
+
+/* 16. Subtract fractions, unlike denominators */
+function genSubUnlike(rng: Rng): Problem {
+  let d1 = int(rng, 2, 8);
+  let d2 = int(rng, 2, 8);
+  if (d2 === d1) d2 = (d1 % 8) + 1;
+  let a = int(rng, 1, d1 - 1);
+  let b = int(rng, 1, d2 - 1);
+  // Keep the result positive: ensure a/d1 >= b/d2, swapping when needed.
+  if (a * d2 < b * d1) {
+    [a, b] = [b, a];
+    [d1, d2] = [d2, d1];
+  }
+  if (a * d2 === b * d1) {
+    a = d1 - 1;
+    b = 1;
+    if (a * d2 < b * d1) {
+      [a, b] = [b, a];
+      [d1, d2] = [d2, d1];
+    }
+  }
+  const num = a * d2 - b * d1;
+  const den = d1 * d2;
+  const g = gcd(num, den);
+  const answer = g > 1 ? `${num / g}/${den / g}` : `${num}/${den}`;
+  return build(
+    rng, "fr-sub-unlike-5", "medium", "fraction",
+    `What is ${a}/${d1} - ${b}/${d2}? Give your answer as a fraction.`,
+    answer,
+    `First make the bottoms match: use ${den} as a common denominator (${d1} × ${d2}).`,
+    `Convert: ${a}/${d1} = ${a * d2}/${den} and ${b}/${d2} = ${b * d1}/${den}, then subtract the tops.`,
+    `${a}/${d1} - ${b}/${d2} = ${a * d2}/${den} - ${b * d1}/${den} = ${num}/${den} = ${answer}. Rewrite with common denominator ${den}, subtract numerators${g > 1 ? ", and simplify" : ""}.`,
+  );
+}
+
+/* 17. Multiply fraction by whole number (grade-5 range, may scale past one whole) */
+function genMultWholeAdv(rng: Rng): Problem {
+  const d = int(rng, 2, 8);
+  const a = int(rng, 1, d - 1);
+  const w = int(rng, 3, 9);
+  const num = a * w;
+  const g = gcd(num, d);
+  const rn = num / g;
+  const rd = d / g;
+  const answer = rd === 1 ? String(rn) : `${rn}/${rd}`;
+  return build(
+    rng, "fr-mult-whole-adv", "medium", "fraction",
+    `What is ${a}/${d} × ${w}? Give your answer as a fraction (a whole number is fine).`,
+    answer,
+    `Multiply the top by ${w} and keep the bottom: (${a} × ${w})/${d}.`,
+    `That gives ${num}/${d}${g > 1 ? `, then simplify by dividing top and bottom by ${g}` : ""}.`,
+    `${a}/${d} × ${w} = ${num}/${d} = ${answer}. Multiply the numerator by ${w}, keep the denominator${g > 1 ? ", and simplify" : ""}.`,
+  );
+}
+
+/* 18. Add & subtract decimals to hundredths */
+function genDecAddSub(rng: Rng): Problem {
+  const c1 = int(rng, 101, 9999);
+  const c2 = int(rng, 101, 9999);
+  const plus = rng() < 0.5;
+  const hi = Math.max(c1, c2);
+  const lo = Math.min(c1, c2);
+  const cents = plus ? c1 + c2 : hi - lo;
+  const x = (c1 / 100).toString();
+  const y = plus ? (c2 / 100).toString() : (c1 >= c2 ? (c2 / 100).toString() : (c1 / 100).toString());
+  const top = plus ? x : (hi / 100).toString();
+  const bottom = plus ? y : (lo / 100).toString();
+  const op = plus ? "+" : "-";
+  const answer = (cents / 100).toString();
+  return build(
+    rng, "bt-dec-add-sub", "medium", "decimal",
+    `What is ${top} ${op} ${bottom}?`,
+    answer,
+    `Line up the decimal points, then ${plus ? "add" : "subtract"} as if they were whole numbers.`,
+    `${plus ? "Add hundredths, then tenths, carrying as needed" : "Subtract hundredths, then tenths, borrowing as needed"}; keep the decimal point lined up.`,
+    `${top} ${op} ${bottom} = ${answer}. Line up the decimal points and ${plus ? "add" : "subtract"} column by column.`,
+  );
+}
+
+/* 19. Multiply decimals by powers of 10 */
+const DEC_POW10 = [10, 100, 1000];
+
+function genDecMultPow10(rng: Rng): Problem {
+  const cents = int(rng, 101, 9999);
+  const k = DEC_POW10[int(rng, 0, DEC_POW10.length - 1)];
+  const x = (cents / 100).toString();
+  const answer = ((cents * k) / 100).toString();
+  const places = k === 10 ? "one place" : k === 100 ? "two places" : "three places";
+  return build(
+    rng, "bt-dec-mult-pow10", "easy", "decimal",
+    `What is ${x} × ${k}?`,
+    answer,
+    `Multiplying by ${k} shifts every digit left; the point moves ${places} to the right.`,
+    `Drop the point-shift view: ${x} is ${cents} hundredths, and ${cents} × ${k} = ${cents * k} hundredths.`,
+    `${x} × ${k} = ${answer}. The decimal point moves ${places} to the right.`,
+  );
+}
+
+/* 20. Volume of rectangular prisms */
+function genVolume(rng: Rng): Problem {
+  const l = int(rng, 2, 9);
+  const w = int(rng, 2, 9);
+  const h = int(rng, 2, 9);
+  const difficulty: Difficulty = l * w * h > 200 ? "medium" : "easy";
+  return build(
+    rng, "md-volume", difficulty, "integer",
+    `A box is ${l} cm long, ${w} cm wide, and ${h} cm tall. What is its volume in cubic centimeters?`,
+    String(l * w * h),
+    `Volume of a box = length × width × height. Start with ${l} × ${w}.`,
+    `First ${l} × ${w} = ${l * w}, then multiply by the height: ${l * w} × ${h}.`,
+    `Volume = ${l} × ${w} × ${h} = ${l * w * h} cubic centimeters. Count unit cubes or multiply the three edges.`,
+  );
+}
+
+/* 21. Order of operations basics */
+function genOrderOps(rng: Rng): Problem {
+  const a = int(rng, 2, 9);
+  const b = int(rng, 2, 9);
+  const c = int(rng, 2, 9);
+  const paren = rng() < 0.5;
+  const text = paren ? `What is (${a} + ${b}) × ${c}?` : `What is ${a} + ${b} × ${c}?`;
+  const answer = paren ? (a + b) * c : a + b * c;
+  return build(
+    rng, "oa-order-ops", "medium", "integer",
+    text,
+    String(answer),
+    paren ? "Parentheses first: solve inside them before multiplying." : "Multiply before adding: do the × step first.",
+    paren ? `(${a} + ${b}) = ${a + b}, then × ${c}.` : `${b} × ${c} = ${b * c}, then + ${a}.`,
+    paren
+      ? `(${a} + ${b}) × ${c} = ${a + b} × ${c} = ${answer}. Parentheses come first.`
+      : `${a} + ${b} × ${c} = ${a} + ${b * c} = ${answer}. Multiplication comes before addition.`,
+  );
+}
+
+/* 22. Coordinate plane basics (first quadrant) */
+function genCoordPlane(rng: Rng): Problem {
+  const x = int(rng, 1, 9);
+  const y = int(rng, 1, 9);
+  return build(
+    rng, "geo-coord-plane", "easy", "text",
+    `Point A is ${x} units to the right and ${y} units up from the origin (0, 0). What are its coordinates? Write them like this: x, y.`,
+    `${x}, ${y}`,
+    "The first number counts steps right (x), the second counts steps up (y).",
+    `Right ${x} means x = ${x}; up ${y} means y = ${y}.`,
+    `Start at (0, 0), move right ${x} and up ${y}: point A is (${x}, ${y}).`,
+  );
+}
+
 export const GENERATORS: Record<string, Generator> = {
   "bt-add-multidigit": genAddMulti,
   "bt-sub-multidigit": genSubMulti,
@@ -316,9 +486,47 @@ export const GENERATORS: Record<string, Generator> = {
   "md-perimeter": genPerimeter,
   "bt-place-value": genPlaceValue,
   "bt-rounding": genRounding,
+  "fr-add-unlike-5": genAddUnlike,
+  "fr-sub-unlike-5": genSubUnlike,
+  "fr-mult-whole-adv": genMultWholeAdv,
+  "bt-dec-add-sub": genDecAddSub,
+  "bt-dec-mult-pow10": genDecMultPow10,
+  "md-volume": genVolume,
+  "oa-order-ops": genOrderOps,
+  "geo-coord-plane": genCoordPlane,
+};
+export const ALL_SKILLS: string[] = Object.keys(GENERATORS);
+
+/** Grade band per generator skill: grade-4 skills map to 4, new skills map to 5. */
+export const GENERATOR_GRADES: Record<string, 4 | 5> = {
+  "bt-add-multidigit": 4,
+  "bt-sub-multidigit": 4,
+  "oa-mult-1digit": 4,
+  "oa-mult-digit-1digit": 4,
+  "oa-div-facts": 4,
+  "oa-div-1digit-divisor": 4,
+  "fr-equiv": 4,
+  "fr-add-like": 4,
+  "fr-sub-like": 4,
+  "fr-compare-decimals": 4,
+  "md-area": 4,
+  "md-perimeter": 4,
+  "bt-place-value": 4,
+  "bt-rounding": 4,
+  "fr-add-unlike-5": 5,
+  "fr-sub-unlike-5": 5,
+  "fr-mult-whole-adv": 5,
+  "bt-dec-add-sub": 5,
+  "bt-dec-mult-pow10": 5,
+  "md-volume": 5,
+  "oa-order-ops": 5,
+  "geo-coord-plane": 5,
 };
 
-export const ALL_SKILLS: string[] = Object.keys(GENERATORS);
+/** Grade band for a generator skill id (defaults to 4 for unknown ids). */
+export function generatorGradeFor(skillId: string): 4 | 5 {
+  return GENERATOR_GRADES[skillId] ?? 4;
+}
 
 /**
  * Generate one problem for a skill from a seed. Same (skillId, seed) always

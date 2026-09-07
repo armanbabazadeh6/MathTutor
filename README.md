@@ -56,6 +56,16 @@ Local-first works with zero env vars. To wire the cloud sync later:
   per-profile. (Known gap: the backup JSON does not yet cover `redemptions.v1` — catalog +
   ledgers survive only in device storage until that suffix joins the backup set.)
 
+## Daily quest + grade unlocks
+
+- Today shows one fixed Daily Quest per kid per day (same quest all day, locked at first start).
+  Finishing it pays the quest bonus + advances the streak; anything else is extra practice
+  (stars still count, streak frozen). Missed days expire — no backlog.
+- `/plan` tracks the grade climb: acing a domain's grade-4 skills graduates it (fanfare +
+  celebration) and opens its grade-5 games; 3 graduations unlock Fifth Grade.
+- Grown-ups: `/admin` shows today's quest, rebuilds it with a noted reason, and can
+  force grade-5 areas open/shut per kid (Auto = by mastery).
+
 ## Deploy (Vercel)
 
 `next.config.js` is intentionally empty — Vercel's defaults build this repo with no extra

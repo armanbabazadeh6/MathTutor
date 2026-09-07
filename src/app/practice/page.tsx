@@ -6,10 +6,18 @@ import { PageFade } from "@/components/effects/PageFade";
 import { DuoCard } from "@/components/duo/Card";
 import { ChunkyButton } from "@/components/duo/ChunkyButton";
 import { Character } from "@/components/duo/Character";
-import { loadAssignment, recordResult, saveLastResult, saveNewBadges } from "@/lib/session";
+import {
+  QUEST_ASSIGNMENT_PREFIX,
+  getDailyQuest,
+  isQuestAssignment,
+  loadAssignment,
+  recordResult,
+  saveLastResult,
+  saveNewBadges,
+} from "@/lib/session";
+import type { AssignmentState } from "@/lib/session";
 import { ProblemPlayer } from "@/components/student/ProblemPlayer";
 import { StudentNav } from "@/components/student/StudentNav";
-import type { AssignmentState } from "@/lib/session";
 
 export default function PracticePage() {
   const router = useRouter();
@@ -56,7 +64,24 @@ export default function PracticePage() {
         assignment={assignment}
         onComplete={(result) => {
           saveLastResult(result);
-          saveNewBadges(recordResult(result).newBadges);
+          // Quest assignments consume the fixed daily quest: a full solve
+          // pays the quest bonus + streak, anything else (partial quest or
+          // free-pick extra practice) saves progress without moving the streak.
+          if (isQuestAssignment(assignment)) {
+            let quest = null;
+            try {
+              quest = getDailyQuest();
+            } catch {
+              quest = null;
+            }
+            const matches = quest !== null && assignment.id === `${QUEST_ASSIGNMENT_PREFIX}${quest.id}`;
+            const fullSolve = matches && result.solved === result.total && result.total > 0;
+            saveNewBadges(
+              recordResult(result, undefined, fullSolve ? { quest } : { countStreak: false }).newBadges,
+            );
+          } else {
+            saveNewBadges(recordResult(result, undefined, { countStreak: false }).newBadges);
+          }
           router.push("/practice/results");
         }}
       />

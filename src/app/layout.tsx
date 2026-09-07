@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Fredoka, Nunito } from "next/font/google";
-import "./globals.css";
+import { ErrorGate } from "@/components/duo/ErrorGate";
+import { InstallPrompt } from "@/components/effects/InstallPrompt";
 
 const display = Fredoka({
   subsets: ["latin"],
@@ -60,7 +61,10 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-title" content="MathTutor" />
         <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
       </head>
-      <body className="min-h-screen font-sans antialiased">{children}</body>
+      <body className="min-h-screen font-sans antialiased">
+        <ErrorGate>{children}</ErrorGate>
+        <InstallPrompt />
+      </body>
     </html>
   );
 }

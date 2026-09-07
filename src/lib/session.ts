@@ -13,6 +13,23 @@ import type { EarnEvents } from "./rewards/earning";
 import { emptyPointsState } from "./rewards/types";
 import type { PointsState } from "./rewards/types";
 import { profileKey } from "./profile/store";
+import {
+  awardQuestCompletion,
+  isQuestComplete,
+  isQuestExpired,
+  regenerateQuest,
+  resolveDailyQuest,
+  startQuest,
+} from "./quest/quest";
+import type { Quest, QuestPlanState } from "./quest/quest";
+export type { Quest, QuestPlanState };
+export { QUEST_ASSIGNMENT_NOTE } from "./quest/quest";
+import {
+  domainGraduationStatus,
+  globalGraduationStatus,
+  graduatedDomains,
+} from "./plan/graduation";
+export { globalGraduationStatus, graduatedDomains, domainGraduationStatus };
 
 // NOTE (future DB persist): assignments/results currently live in localStorage
 // only. When supabase/ lands, persist AssignmentState + PracticeResult rows
@@ -402,9 +419,25 @@ export function badgeById(id: string): BadgeDef | undefined {
   return BADGES.find((b) => b.id === id);
 }
 
+/** Options for recordResult: quest completion pays the quest bonus, extra practice skips the streak. */
+export interface RecordResultOpts {
+  /** Fixed daily quest this result belongs to. Full solve pays bonus + streak via the quest rules. */
+  quest?: Quest | null;
+  /** Local "YYYY-MM-DD" for quest expiry checks. Defaults to today. */
+  today?: string;
+  /**
+   * False for optional extra practice (and partial quests): progress and
+   * standard completion points still save, but the day streak does not
+   * advance. Defaults to true. Per-problem first-try/level-up stars from
+   * `recordGradedAttempt` are unaffected (effort always counts).
+   */
+  countStreak?: boolean;
+}
+
 export function recordResult(
   result: PracticeResult,
   profileId?: string | null,
+  opts?: RecordResultOpts,
 ): { progress: ProgressState; newBadges: string[]; points: PointsState } {
   const progress = loadProgress(profileId);
   const before = new Set(progress.badges);
@@ -413,8 +446,9 @@ export function recordResult(
   progress.xp += result.xpEarned;
   if (result.solved === result.total && result.total > 0) progress.perfectSessions += 1;
 
-  const today = todayStr();
-  if (progress.lastPlayedDate !== today) {
+  const countStreak = opts?.countStreak !== false;
+  const today = opts?.today ?? todayStr();
+  if (countStreak && progress.lastPlayedDate !== today) {
     progress.streakCount = progress.lastPlayedDate === yesterdayStr() ? progress.streakCount + 1 : 1;
     progress.lastPlayedDate = today;
   }
@@ -440,7 +474,25 @@ export function recordResult(
   if (result.attempts.some((a) => a.solved && a.attemptsUsed > 1)) award("persistent");
 
   saveProgress(progress, profileId);
-  const points = awardPoints({ completions: 1 }, undefined, profileId);
+  const quest = opts?.quest ?? null;
+  let points: PointsState;
+  if (
+    quest &&
+    result.solved === result.total &&
+    result.total > 0 &&
+    isQuestComplete(quest, result.solved) &&
+    !isQuestExpired(quest, today)
+  ) {
+    // Full quest solve: one completion event + daily bonus through the
+    // canonical quest path (streak advance + multiplier handled there).
+    points = awardQuestCompletion(loadPointsState(profileId), quest, today);
+    savePointsState(points, profileId);
+    markQuestComplete(quest.id, profileId);
+  } else if (!countStreak) {
+    points = awardPointsNoStreak({ completions: 1 }, today, profileId);
+  } else {
+    points = awardPoints({ completions: 1 }, undefined, profileId);
+  }
   return { progress, newBadges: progress.badges.filter((b) => !before.has(b)), points };
 }
 
@@ -674,36 +726,41 @@ function applyToSession(s: PlanSessionState, entry: SkillHistoryEntry): LevelUpd
   return res;
 }
 
+/** Effort-points option: false keeps the day streak frozen (extra practice). Defaults to true. */
+export interface EffortPointsOpts {
+  countStreak?: boolean;
+  today?: string;
+}
+
 /**
  * Records one graded problem attempt: appends history, rolls the
  * consecutive-correct/incorrect counters, and re-applies the plan
  * promotion/demotion rules for that skill. Persists the session.
  */
-export function recordGradedAttempt(entry: SkillHistoryEntry, profileId?: string | null): GradedOutcome {
+export function recordGradedAttempt(
+  entry: SkillHistoryEntry,
+  profileId?: string | null,
+  opts?: EffortPointsOpts,
+): GradedOutcome {
   const s = loadPlanSession(profileId);
   const res = applyToSession(s, entry);
   savePlanSession(s, profileId);
-  const points = awardPoints(
-    {
-      firstTryCorrect: entry.firstTryCorrect ? 1 : 0,
-      levelUps: res.promoted ? 1 : 0,
-    },
-    undefined,
-    profileId,
-  );
+  const events = {
+    firstTryCorrect: entry.firstTryCorrect ? 1 : 0,
+    levelUps: res.promoted ? 1 : 0,
+  };
+  const points =
+    opts?.countStreak === false
+      ? awardPointsNoStreak(events, opts?.today ?? todayStr(), profileId)
+      : awardPoints(events, undefined, profileId);
   return { ...res, state: s, points };
 }
 
-/**
- * Records a reteach (TeachView) outcome. The scaffolded check counts as a
- * hinted attempt — never a first-try streak — so a good reteach heals
- * mastery without falsely promoting. A correct reteach clears the skill
- * from the reteach queue.
- */
 export function recordReteachOutcome(
   skillId: string,
   correct: boolean,
   profileId?: string | null,
+  opts?: EffortPointsOpts,
 ): GradedOutcome {
   const s = loadPlanSession(profileId);
   const res = applyToSession(s, {
@@ -715,7 +772,11 @@ export function recordReteachOutcome(
   });
   if (correct) s.reteachQueue = s.reteachQueue.filter((q) => q !== skillId);
   savePlanSession(s, profileId);
-  const points = awardPoints({ levelUps: res.promoted ? 1 : 0 }, undefined, profileId);
+  const events = { levelUps: res.promoted ? 1 : 0 };
+  const points =
+    opts?.countStreak === false
+      ? awardPointsNoStreak(events, opts?.today ?? todayStr(), profileId)
+      : awardPoints(events, undefined, profileId);
   return { ...res, state: s, points };
 }
 
@@ -729,4 +790,341 @@ export function currentPlan(size = 10, todayTopic?: string, profileId?: string |
     todayTopic,
     size,
   });
+}
+
+// ---------- daily quest state (fixed quest is THE assignment, versioned) ----------
+//
+// The quest of the day is THE assignment: same quest all day (stable across
+// restarts via resolveDailyQuest, locked at first start), free-pick topics
+// stay available only as optional extra practice. Extra practice still earns
+// per-problem stars and standard completion points, but never the quest
+// bonus and never advances the day streak. All keys are per-profile.
+
+/** Storage version for the quest doc. Bump on breaking shape changes. */
+export const QUEST_DOC_VERSION = 1;
+const QUEST_KEY = "mt.quest.v1";
+/** Quest-backed assignments carry this id prefix so practice can route completion. */
+export const QUEST_ASSIGNMENT_PREFIX = "quest-";
+
+/** Local "YYYY-MM-DD" (quest rollover is by calendar date). */
+export function localDateISO(d = new Date()): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+interface QuestDoc {
+  version: number;
+  quest: Quest | null;
+  completed: string[];
+}
+
+function emptyQuestDoc(): QuestDoc {
+  return { version: QUEST_DOC_VERSION, quest: null, completed: [] };
+}
+
+function isQuestDoc(v: unknown): v is QuestDoc {
+  if (!v || typeof v !== "object") return false;
+  const d = v as Record<string, unknown>;
+  if (d["version"] !== QUEST_DOC_VERSION) return false;
+  const q = d["quest"];
+  if (q !== null && (typeof q !== "object" || typeof (q as Quest).id !== "string")) return false;
+  return Array.isArray(d["completed"]);
+}
+
+function loadQuestDoc(profileId?: string | null): QuestDoc {
+  if (!canStore()) return emptyQuestDoc();
+  try {
+    const raw = readStored(QUEST_KEY, profileId);
+    if (!raw) return emptyQuestDoc();
+    const parsed = JSON.parse(raw) as unknown;
+    return isQuestDoc(parsed) ? parsed : emptyQuestDoc();
+  } catch {
+    return emptyQuestDoc();
+  }
+}
+
+function saveQuestDoc(doc: QuestDoc, profileId?: string | null): void {
+  writeStored(QUEST_KEY, JSON.stringify(doc), profileId);
+}
+
+/** Plan snapshot the quest mix draws from (queue order carries reteach-first priority). */
+function questPlanSnapshot(profileId?: string | null): QuestPlanState {
+  const s = loadPlanSession(profileId);
+  const plan = buildPlan({
+    levelsMap: s.levels,
+    masteryMap: s.mastery,
+    history: s.history,
+    size: 12,
+  });
+  return { items: plan.items, levels: s.levels };
+}
+
+/**
+ * Fixed quest for one kid + day. Stable intraday: a locked quest for the
+ * same id is returned verbatim even as mastery shifts; pre-start rebuilds
+ * reflect the latest plan. Persists on first build.
+ */
+export function getDailyQuest(today = localDateISO(), profileId?: string | null): Quest {
+  const pid = currentProfileId() ?? "solo";
+  const doc = loadQuestDoc(profileId);
+  const quest = resolveDailyQuest(doc.quest, {
+    profileId: pid,
+    dateISO: today,
+    planState: questPlanSnapshot(profileId),
+  });
+  if (JSON.stringify(doc.quest) !== JSON.stringify(quest)) {
+    doc.quest = quest;
+    saveQuestDoc(doc, profileId);
+  }
+  return quest;
+}
+
+/** True when the assignment was minted from the fixed daily quest. */
+export function isQuestAssignment(a: AssignmentState | null | undefined): boolean {
+  return !!a && a.id.startsWith(QUEST_ASSIGNMENT_PREFIX);
+}
+
+/**
+ * Mint deterministic problems for every quest item (seed + position), so
+ * practice consumes the quest items 1:1. Skills without a deterministic
+ * generator (e.g. geometry) fall back to the weakest supported skill in
+ * the same domain at its plan level — practice never comes back empty.
+ */
+export function questToAssignment(quest: Quest, profileId?: string | null): AssignmentState {
+  const session = loadPlanSession(profileId);
+  const supported = new Set(ALL_GENERATOR_SKILLS);
+  const byMastery = (a: { id: string }, b: { id: string }) =>
+    (session.mastery[a.id] ?? DEFAULT_MASTERY) - (session.mastery[b.id] ?? DEFAULT_MASTERY);
+  const supportedAll = SKILLS.filter((s) => supported.has(s.id));
+  const weakestSupported = [...supportedAll].sort(byMastery)[0] ?? SKILLS[0];
+  const problems: GeneratedProblem[] = quest.items.map((item) => {
+    let skillId = item.skillId;
+    let difficulty = item.difficulty;
+    if (!supported.has(skillId)) {
+      const domain = skillDomainOf(skillId);
+      const inDomain = supportedAll.filter((s) => s.domain === domain).sort(byMastery);
+      const sub = inDomain[0] ?? weakestSupported;
+      skillId = sub.id;
+      difficulty = levelToDifficulty(clampLevel(session.levels[skillId] ?? DEFAULT_LEVEL));
+    }
+    const seed = ((quest.seed >>> 0) + item.position * 7919 + 7) >>> 0;
+    const p = generateProblem(skillId, seed, difficulty);
+    return {
+      id: `pq-${quest.seed}-${item.position}`,
+      domain: skillDomainOf(skillId),
+      skillId,
+      skillName: skillNameOf(skillId),
+      prompt: p.text,
+      answer: p.answer,
+      hint1: p.hint1,
+      hint2: p.hint2,
+      explanation: p.explanation,
+    };
+  });
+  const domains = Array.from(new Set(problems.map((p) => p.domain)));
+  return {
+    id: `${QUEST_ASSIGNMENT_PREFIX}${quest.id}`,
+    createdAt: Date.now(),
+    label: quest.questTitle,
+    domains: domains.length ? domains : ALL_DOMAINS,
+    customTopic: "",
+    problems,
+  };
+}
+
+/**
+ * Start (or resume) today's quest: locks the quest at first start, mints
+ * its assignment, and saves it. Same quest + same problems all day.
+ */
+export function startDailyQuest(
+  today = localDateISO(),
+  profileId?: string | null,
+): { quest: Quest; assignment: AssignmentState } {
+  const quest = startQuest(getDailyQuest(today, profileId), new Date().toISOString());
+  const doc = loadQuestDoc(profileId);
+  doc.quest = quest;
+  saveQuestDoc(doc, profileId);
+  const assignment = questToAssignment(quest, profileId);
+  saveAssignment(assignment, profileId);
+  return { quest, assignment };
+}
+
+/**
+ * Parent override: rebuilds the SAME day's quest with a fresh deterministic
+ * seed from profileId|date|reason. Requires a non-empty reason (the grown-up
+ * notes why). The new quest is UNLOCKED and any stale quest assignment is
+ * cleared so the family starts fresh.
+ */
+export function regenerateDailyQuest(
+  reason: string,
+  today = localDateISO(),
+  profileId?: string | null,
+): Quest {
+  if (typeof reason !== "string" || reason.trim().length === 0) {
+    throw new Error("reason must be a non-empty string (parent override note)");
+  }
+  const quest = regenerateQuest({
+    quest: getDailyQuest(today, profileId),
+    reason: reason.trim(),
+    planState: questPlanSnapshot(profileId),
+  });
+  const doc = loadQuestDoc(profileId);
+  doc.quest = quest;
+  saveQuestDoc(doc, profileId);
+  const saved = loadAssignment(profileId);
+  if (isQuestAssignment(saved)) clearAssignment(profileId);
+  return quest;
+}
+
+/** True once the full quest was solved (bonus paid). */
+export function isQuestDoneToday(questId: string, profileId?: string | null): boolean {
+  return loadQuestDoc(profileId).completed.includes(questId);
+}
+
+function markQuestComplete(questId: string, profileId?: string | null): void {
+  const doc = loadQuestDoc(profileId);
+  if (!doc.completed.includes(questId)) {
+    doc.completed.push(questId);
+    saveQuestDoc(doc, profileId);
+  }
+}
+
+/**
+ * Standard completion points WITHOUT moving the day streak or granting the
+ * auto daily bonus: the extra-practice path. Same event math on the current
+ * streak, history notes it as extra practice.
+ */
+function awardPointsNoStreak(events: EarnEvents, today: string, profileId?: string | null): PointsState {
+  const current = loadPointsState(profileId);
+  const preview = recordActivity(current, today, { ...events, dailyBonus: false });
+  const delta = preview.balance - current.balance;
+  const next: PointsState = {
+    ...current,
+    balance: current.balance + delta,
+    lifetime: current.lifetime + delta,
+    history:
+      delta !== 0 || current.lastActiveDate !== today
+        ? [...current.history, { date: today, kind: "grant", points: delta, note: "extra practice" }]
+        : current.history,
+  };
+  savePointsState(next, profileId);
+  return next;
+}
+
+// ---------- grade overrides + graduation views (parent controls, per-profile) ----------
+
+const GRADE_OVERRIDE_KEY = "mt.gradeOverrides.v1";
+
+/** Parent lock/unlock per domain: "unlocked" forces graduated, "locked" forces not. Absent = by mastery. */
+export type GradeOverride = "locked" | "unlocked";
+
+function isOverrideRecord(v: unknown): v is Record<string, GradeOverride> {
+  if (!v || typeof v !== "object") return false;
+  return Object.values(v as Record<string, unknown>).every((x) => x === "locked" || x === "unlocked");
+}
+
+/** Parent-set domain locks. Missing/corrupt payloads read as no overrides. */
+export function getGradeOverrides(profileId?: string | null): Record<string, GradeOverride> {
+  if (!canStore()) return {};
+  try {
+    const raw = readStored(GRADE_OVERRIDE_KEY, profileId);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    return isOverrideRecord(parsed) ? { ...parsed } : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Set (or clear with null) a parent lock for one domain. Returns the updated map. */
+export function setGradeOverride(
+  domain: SkillDomain,
+  value: GradeOverride | null,
+  profileId?: string | null,
+): Record<string, GradeOverride> {
+  const next = getGradeOverrides(profileId);
+  if (value === null) delete next[domain];
+  else next[domain] = value;
+  writeStored(GRADE_OVERRIDE_KEY, JSON.stringify(next), profileId);
+  return next;
+}
+
+export interface DomainGradeView {
+  domain: SkillDomain;
+  avgLevel: number;
+  avgMastery: number;
+  coverage: number;
+  qualifying: number;
+  total: number;
+  graduated: boolean;
+  /** True when a parent lock decided this (not mastery). */
+  overridden: boolean;
+  grade5Count: number;
+  grade5Total: number;
+}
+
+/** Per-domain grade progress with parent locks applied. Pure read of plan + override stores. */
+export function gradeViews(profileId?: string | null): DomainGradeView[] {
+  const s = loadPlanSession(profileId);
+  const overrides = getGradeOverrides(profileId);
+  return SKILL_DOMAINS.map((d) => {
+    const st = domainGraduationStatus(d.id, s.levels, s.mastery);
+    const override = overrides[d.id];
+    const g5 = SKILLS.filter((sk) => sk.domain === d.id && sk.grade === 5);
+    return {
+      domain: d.id,
+      avgLevel: st.avgLevel,
+      avgMastery: st.avgMastery,
+      coverage: st.coverage,
+      qualifying: st.qualifying,
+      total: st.total,
+      graduated: override === "unlocked" ? true : override === "locked" ? false : st.graduated,
+      overridden: override === "locked" || override === "unlocked",
+      grade5Count: override === "locked" ? 0 : st.graduated || override === "unlocked" ? g5.length : 0,
+      grade5Total: g5.length,
+    };
+  });
+}
+
+/** Global Fifth Grade view with parent locks applied. */
+export function globalGradeView(profileId?: string | null): {
+  name: "Fifth Grade!";
+  graduatedCount: number;
+  needed: number;
+  graduated: SkillDomain[];
+  unlocked: boolean;
+} {
+  const views = gradeViews(profileId);
+  const graduated = views.filter((v) => v.graduated).map((v) => v.domain);
+  const base = globalGraduationStatus();
+  return {
+    name: base.name,
+    graduatedCount: graduated.length,
+    needed: base.needed,
+    graduated,
+    unlocked: graduated.length >= base.needed,
+  };
+}
+
+// ---------- graduation celebrations (fanfare plays once per unlock) ----------
+
+const CELEBRATED_KEY = "mt.celebratedGraduations.v1";
+
+/** Domain ids + "fifth-grade" already celebrated for this kid. Never throws. */
+export function loadCelebratedGraduations(profileId?: string | null): string[] {
+  if (!canStore()) return [];
+  try {
+    const raw = readStored(CELEBRATED_KEY, profileId);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveCelebratedGraduations(ids: string[], profileId?: string | null): void {
+  writeStored(CELEBRATED_KEY, JSON.stringify(ids), profileId);
 }

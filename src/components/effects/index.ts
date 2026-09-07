@@ -5,3 +5,5 @@ export { ConfettiBurst } from "./ConfettiBurst";
 export { CountUp } from "./CountUp";
 export { ProgressRing } from "./ProgressRing";
 export { PageFade } from "./PageFade";
+export { SoundToggle } from "./SoundToggle";
+export { InstallPrompt } from "./InstallPrompt";

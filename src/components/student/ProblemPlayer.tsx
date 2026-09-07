@@ -9,6 +9,7 @@ import { Character } from "@/components/duo/Character";
 import { HeartBar } from "@/components/duo/HeartBar";
 import {
   checkAnswer,
+  isQuestAssignment,
   loadPlanSession,
   recordGradedAttempt,
   recordReteachOutcome,
@@ -42,18 +43,25 @@ export function ProblemPlayer({
   const problem = assignment.problems[index];
   const [followUp, setFollowUp] = useState<GeneratedProblem | null>(null);
   const [lesson, setLesson] = useState<Lesson | null>(null);
+  // Quest assignments count the day streak; free-pick extra practice earns
+  // effort stars only (no streak movement). Derived from the assignment id.
+  const questMode = isQuestAssignment(assignment);
   const displayProblem = followUp ?? problem;
 
   const advance = useMemo(
     () => (solved: boolean, correctFirstTry: boolean) => {
       const now = Date.now();
-      recordGradedAttempt({
-        skillId: displayProblem.skillId,
-        firstTryCorrect: correctFirstTry,
-        exhaustedAttempts: !solved,
-        correct: solved,
-        usedHint: attemptsUsed > 1,
-      });
+      recordGradedAttempt(
+        {
+          skillId: displayProblem.skillId,
+          firstTryCorrect: correctFirstTry,
+          exhaustedAttempts: !solved,
+          correct: solved,
+          usedHint: attemptsUsed > 1,
+        },
+        undefined,
+        questMode ? undefined : { countStreak: false },
+      );
       const record: ProblemAttempt = {
         problemId: displayProblem.id,
         domain: displayProblem.domain,
@@ -101,7 +109,7 @@ export function ProblemPlayer({
       setError("");
       startRef.current = Date.now();
     },
-    [assignment, index, total, onComplete, displayProblem, attemptsUsed]
+    [assignment, index, total, onComplete, displayProblem, attemptsUsed, questMode]
   );
 
   const submit = () => {
@@ -142,14 +150,18 @@ export function ProblemPlayer({
     setLesson(null);
     if (reteachCorrect) {
       // Struggle first: record the exhausted attempt, then the reteach win.
-      recordGradedAttempt({
-        skillId: displayProblem.skillId,
-        firstTryCorrect: false,
-        exhaustedAttempts: true,
-        correct: false,
-        usedHint: true,
-      });
-      recordReteachOutcome(displayProblem.skillId, true);
+      recordGradedAttempt(
+        {
+          skillId: displayProblem.skillId,
+          firstTryCorrect: false,
+          exhaustedAttempts: true,
+          correct: false,
+          usedHint: true,
+        },
+        undefined,
+        questMode ? undefined : { countStreak: false },
+      );
+      recordReteachOutcome(displayProblem.skillId, true, undefined, questMode ? undefined : { countStreak: false });
       // Follow-up check: fresh numbers, same skill, at the (lowered) plan level.
       const session = loadPlanSession();
       const level = clampLevel(session.levels[displayProblem.skillId] ?? DEFAULT_LEVEL);
@@ -165,7 +177,7 @@ export function ProblemPlayer({
       setError("");
       startRef.current = Date.now();
     } else {
-      recordReteachOutcome(displayProblem.skillId, false);
+      recordReteachOutcome(displayProblem.skillId, false, undefined, questMode ? undefined : { countStreak: false });
       advance(false, false);
     }
   };
