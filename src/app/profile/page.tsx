@@ -2,8 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button } from "@/components/ui/Button";
-import { Card } from "@/components/ui/Card";
+import { PageFade } from "@/components/effects/PageFade";
+import { DuoCard } from "@/components/duo/Card";
+import { ChunkyButton } from "@/components/duo/ChunkyButton";
+import { Character } from "@/components/duo/Character";
+import { BottomNav } from "@/components/duo/BottomNav";
 import {
   PROFILE_ANIMALS,
   PROFILE_COLORS,
@@ -32,6 +35,39 @@ import {
 } from "@/lib/profile/store";
 import type { ProfilesDoc } from "@/lib/profile/store";
 
+function PinPad({ onDigit, onBack }: { onDigit: (d: string) => void; onBack: () => void }) {
+  const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"];
+  return (
+    <div className="grid grid-cols-3 gap-2" role="group" aria-label="Number pad">
+      {keys.map((k) => (
+        <ChunkyButton
+          key={k}
+          type="button"
+          variant="secondary"
+          size="sm"
+          onClick={() => onDigit(k)}
+          aria-label={`Digit ${k}`}
+        >
+          {k}
+        </ChunkyButton>
+      ))}
+      <ChunkyButton
+        type="button"
+        variant="secondary"
+        size="sm"
+        onClick={onBack}
+        aria-label="Delete last digit"
+        className="col-span-3"
+      >
+        ⌫ Delete
+      </ChunkyButton>
+    </div>
+  );
+}
+
+const inputCls =
+  "flex-1 rounded-2xl border-2 border-line bg-white px-5 py-3 text-kid-base font-semibold text-ink outline-none focus:border-primary min-h-[56px]";
+
 export default function ProfilePage() {
   const router = useRouter();
   const [doc, setDoc] = useState<ProfilesDoc | null>(null);
@@ -50,15 +86,23 @@ export default function ProfilePage() {
     setUsage(storageUsageNote());
   }, []);
 
-  if (!doc) return <main className="mx-auto max-w-2xl px-5 py-8"><p>Loading…</p></main>;
+  if (!doc)
+    return (
+      <main className="mx-auto flex min-h-screen w-full max-w-2xl flex-col items-center justify-center gap-3 px-5 py-8">
+        <Character pose="happy" size={96} label="Mascot loading profile" />
+        <p className="font-display text-kid-lg font-semibold text-muted">Loading… 🎒</p>
+      </main>
+    );
   const active = getActiveProfile(doc);
   if (!active) {
     return (
       <main className="mx-auto flex min-h-screen w-full max-w-2xl flex-col gap-5 px-5 py-8">
-        <h1 className="text-4xl font-extrabold">My profile 👤</h1>
-        <Card title="No kid yet" subtitle="Pick or add one first">
-          <Button onClick={() => router.push("/profiles")}>Choose profile</Button>
-        </Card>
+        <PageFade>
+          <h1 className="font-display text-kid-3xl font-semibold tracking-tight">My profile 👤</h1>
+          <DuoCard title="No kid yet" subtitle="Pick or add one first" icon={<Character pose="think" size={64} label="Mascot thinking" />}>
+            <ChunkyButton onClick={() => router.push("/profiles")}>Choose profile</ChunkyButton>
+          </DuoCard>
+        </PageFade>
       </main>
     );
   }
@@ -132,113 +176,209 @@ export default function ProfilePage() {
     router.push("/profiles");
   };
 
+  const statRows = [
+    { icon: "⭐", label: "XP", value: String(stats.xp) },
+    { icon: "🔥", label: "day streak", value: String(stats.streakCount) },
+    { icon: "🎯", label: "sessions finished", value: String(stats.sessionsCompleted) },
+    { icon: "🪙", label: "coins", value: String(stats.balance) },
+    { icon: "📚", label: "skills touched", value: String(stats.skillsTouched) },
+  ];
+
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-2xl flex-col gap-5 px-5 py-8">
-      <header className="flex items-center gap-4">
-        {active.avatarDataUrl ? (
-          <img src={active.avatarDataUrl} alt={active.name} className="h-20 w-20 rounded-full object-cover" />
-        ) : (
-          <span className="flex h-20 w-20 items-center justify-center rounded-full text-5xl" style={{ backgroundColor: `${active.color}33`, border: `3px solid ${active.color}` }}>
-            {active.animal}
-          </span>
-        )}
-        <div>
-          <h1 className="text-4xl font-extrabold">{active.name}</h1>
-          <p className="text-muted">Playing since {new Date(active.createdAt).toLocaleDateString()}</p>
-        </div>
-      </header>
+    <main className="mx-auto flex min-h-screen w-full max-w-3xl flex-col gap-5 px-5 pb-8 pt-6 md:max-w-4xl">
+      <PageFade>
+        <div className="flex flex-col gap-5">
+          <header className="grid grid-cols-[auto_1fr] items-center gap-4">
+            {active.avatarDataUrl ? (
+              <img
+                src={active.avatarDataUrl}
+                alt={active.name}
+                className="h-24 w-24 rounded-full border-[3px] object-cover"
+                style={{ borderColor: active.color, boxShadow: "0 4px 0 var(--chunky-shadow)" }}
+              />
+            ) : (
+              <span
+                className="flex h-24 w-24 items-center justify-center rounded-full text-6xl"
+                style={{
+                  backgroundColor: `${active.color}33`,
+                  border: `3px solid ${active.color}`,
+                  boxShadow: "0 4px 0 var(--chunky-shadow)",
+                }}
+                role="img"
+                aria-label={active.name}
+              >
+                {active.animal}
+              </span>
+            )}
+            <div>
+              <h1 className="font-display text-kid-3xl font-semibold tracking-tight">{active.name}</h1>
+              <p className="text-kid-base font-semibold text-muted">
+                Playing since {new Date(active.createdAt).toLocaleDateString()}
+              </p>
+            </div>
+          </header>
 
-      {error ? <p className="text-lg font-semibold text-coral" role="alert">{error}</p> : null}
-      {saved ? <p className="text-lg font-bold text-green-700" role="status">{saved}</p> : null}
-
-      <Card title="Photo 📸" subtitle="A small square photo works best">
-        <div className="flex items-center gap-3">
-          <label className="touch-target inline-flex cursor-pointer items-center justify-center rounded-pill border-2 border-line bg-card px-6 py-3 text-lg font-bold">
-            {active.avatarDataUrl ? "Change photo" : "Add photo"}
-            <input type="file" accept="image/*" className="hidden" onChange={(e) => void pickPhoto(e.target.files?.[0])} />
-          </label>
-          {active.avatarDataUrl ? (
-            <Button variant="secondary" onClick={() => persist(removeProfilePhoto(doc, active.id), "Photo removed!")}>Remove</Button>
+          {error ? (
+            <p className="rounded-2xl border-2 border-coral bg-card px-4 py-3 text-kid-base font-bold text-coral" role="alert">
+              {error}
+            </p>
           ) : null}
-        </div>
-      </Card>
+          {saved ? (
+            <p className="animate-duo-pop rounded-2xl border-2 border-primary bg-mint px-4 py-3 text-kid-base font-bold text-ink" role="status">
+              {saved}
+            </p>
+          ) : null}
 
-      <Card title="Name ✏️">
-        <div className="flex gap-3">
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            maxLength={24}
-            aria-label="Name"
-            className="flex-1 rounded-card border-2 border-line bg-white px-5 py-3 text-lg outline-none focus:border-primary"
-          />
-          <Button onClick={saveName}>Save</Button>
-        </div>
-      </Card>
+          <DuoCard title="Photo 📸" subtitle="A small square photo works best">
+            <div className="flex flex-wrap items-center gap-3">
+              <label
+                className="duo-press touch-target inline-flex min-h-[56px] cursor-pointer items-center justify-center gap-2 rounded-2xl bg-sky px-6 font-display text-kid-sm font-semibold uppercase tracking-wide text-white"
+                style={{ border: "2px solid var(--color-sky-dark)", boxShadow: "0 4px 0 var(--color-sky-dark)" }}
+              >
+                {active.avatarDataUrl ? "📷 Change photo" : "📷 Add photo"}
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="sr-only"
+                  onChange={(e) => void pickPhoto(e.target.files?.[0])}
+                />
+              </label>
+              {active.avatarDataUrl ? (
+                <ChunkyButton variant="secondary" size="sm" onClick={() => persist(removeProfilePhoto(doc, active.id), "Photo removed!")}>
+                  Remove
+                </ChunkyButton>
+              ) : null}
+            </div>
+          </DuoCard>
 
-      <Card title="Color 🎨">
-        <div className="flex flex-wrap gap-2">
-          {PROFILE_COLORS.map((c) => (
-            <button
-              key={c}
-              onClick={() => persist(setProfileColor(doc, active.id, c))}
-              aria-label={`Color ${c}`}
-              className={`h-10 w-10 rounded-full ${active.color === c ? "ring-4 ring-offset-2 ring-primary" : ""}`}
-              style={{ backgroundColor: c }}
-            />
-          ))}
-        </div>
-      </Card>
+          <DuoCard title="Name ✏️">
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                maxLength={24}
+                aria-label="Name"
+                className={inputCls}
+              />
+              <ChunkyButton onClick={saveName}>Save</ChunkyButton>
+            </div>
+          </DuoCard>
 
-      <Card title="Animal 🦊">
-        <div className="flex flex-wrap gap-2">
-          {PROFILE_ANIMALS.map((a) => (
-            <button
-              key={a}
-              onClick={() => persist(setProfileAnimal(doc, active.id, a))}
-              aria-label={`Animal ${a}`}
-              className={`rounded-full border-2 p-2 text-3xl ${active.animal === a ? "border-primary" : "border-line"}`}
-            >
-              {a}
-            </button>
-          ))}
-        </div>
-      </Card>
+          <DuoCard title="Color 🎨" subtitle="Your favorite color">
+            <div className="flex flex-wrap gap-2">
+              {PROFILE_COLORS.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => persist(setProfileColor(doc, active.id, c))}
+                  aria-label={`Color ${c}`}
+                  aria-pressed={active.color === c}
+                  className={`touch-target h-14 w-14 rounded-full border-2 ${active.color === c ? "border-primary ring-4 ring-primary ring-offset-2" : "border-line"}`}
+                  style={{ backgroundColor: c }}
+                />
+              ))}
+            </div>
+          </DuoCard>
 
-      <Card title="PIN 🔒" subtitle={active.pinHash ? "A PIN is set — type a new one to change it, or save empty to remove." : "No PIN yet — optional 4 digits."}>
-        <div className="flex gap-3">
-          <input
-            value={pin}
-            onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
-            inputMode="numeric"
-            placeholder="e.g. 1234"
-            aria-label="New PIN"
-            className="flex-1 rounded-card border-2 border-line bg-white px-5 py-3 text-lg outline-none focus:border-primary"
-          />
-          <Button onClick={savePin}>Save PIN</Button>
-        </div>
-      </Card>
+          <DuoCard title="Animal 🦊" subtitle="Your buddy">
+            <div className="flex flex-wrap gap-2">
+              {PROFILE_ANIMALS.map((a) => (
+                <button
+                  key={a}
+                  type="button"
+                  onClick={() => persist(setProfileAnimal(doc, active.id, a))}
+                  aria-label={`Animal ${a}`}
+                  aria-pressed={active.animal === a}
+                  className={`touch-target flex min-h-[56px] min-w-[56px] items-center justify-center rounded-2xl border-2 p-2 text-3xl ${active.animal === a ? "border-primary bg-mint" : "border-line bg-card"}`}
+                >
+                  {a}
+                </button>
+              ))}
+            </div>
+          </DuoCard>
 
-      <Card title="My stars ⭐" subtitle="Progress saved under this profile">
-        <ul className="flex flex-col gap-1 text-lg">
-          <li>⭐ {stats.xp} XP</li>
-          <li>🔥 {stats.streakCount}-day streak</li>
-          <li>🎯 {stats.sessionsCompleted} sessions finished</li>
-          <li>🪙 {stats.balance} coins</li>
-          <li>📚 {stats.skillsTouched} skills touched</li>
-        </ul>
-      </Card>
+          <DuoCard
+            title="PIN 🔒"
+            subtitle={active.pinHash ? "A PIN is set — type a new one to change it, or save empty to remove." : "No PIN yet — optional 4 digits."}
+          >
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <input
+                  value={pin}
+                  onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                  inputMode="numeric"
+                  placeholder="e.g. 1234"
+                  aria-label="New PIN"
+                  className={`${inputCls} text-center tracking-widest`}
+                />
+                <ChunkyButton onClick={savePin}>Save PIN</ChunkyButton>
+              </div>
+              <PinPad
+                onDigit={(d) => setPin((v) => (v.length >= 4 ? v : v + d))}
+                onBack={() => setPin((v) => v.slice(0, -1))}
+              />
+            </div>
+          </DuoCard>
 
-      <Card title="Backup 💾" subtitle={usage}>
-        <div className="flex flex-wrap gap-3">
-          <Button variant="secondary" onClick={doExport}>Export backup ⬇️</Button>
-          <label className="touch-target inline-flex cursor-pointer items-center justify-center rounded-pill border-2 border-line bg-card px-6 py-3 text-lg font-bold">
-            Import ⬆️
-            <input type="file" accept="application/json" className="hidden" onChange={(e) => void doImport(e.target.files?.[0])} />
-          </label>
-          <Button variant="secondary" onClick={switchKid}>Switch kid 🔄</Button>
+          <DuoCard
+            title="My stars ⭐"
+            subtitle="Progress saved under this profile"
+            icon={<Character pose="cheer" size={64} label="Mascot cheering your stars" />}
+          >
+            <ul className="flex flex-col gap-2">
+              {statRows.map((s) => (
+                <li
+                  key={s.label}
+                  className="flex items-center gap-3 rounded-2xl border-2 border-line bg-card px-4 py-2 text-kid-base font-bold"
+                >
+                  <span aria-hidden className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-sunny text-2xl">
+                    {s.icon}
+                  </span>
+                  <span>
+                    {s.value} <span className="text-muted">{s.label}</span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </DuoCard>
+
+          <DuoCard title="Backup 💾" subtitle={usage}>
+            <div className="flex flex-wrap gap-3">
+              <ChunkyButton variant="secondary" onClick={doExport}>
+                Export backup ⬇️
+              </ChunkyButton>
+              <label
+                className="duo-press touch-target inline-flex min-h-[56px] cursor-pointer items-center justify-center gap-2 rounded-2xl border-2 border-line bg-card px-6 font-display text-kid-sm font-semibold uppercase tracking-wide text-ink"
+                style={{ boxShadow: "0 4px 0 var(--chunky-shadow)" }}
+              >
+                Import ⬆️
+                <input
+                  type="file"
+                  accept="application/json"
+                  className="sr-only"
+                  onChange={(e) => void doImport(e.target.files?.[0])}
+                />
+              </label>
+              <ChunkyButton variant="sky" onClick={switchKid}>
+                Switch kid 🔄
+              </ChunkyButton>
+            </div>
+          </DuoCard>
         </div>
-      </Card>
+      </PageFade>
+
+      <BottomNav
+        items={[
+          { id: "home", label: "Home", icon: <span aria-hidden className="text-2xl">🏠</span> },
+          { id: "profiles", label: "Players", icon: <span aria-hidden className="text-2xl">😎</span> },
+          { id: "profile", label: "Me", icon: <span aria-hidden className="text-2xl">👤</span> },
+        ]}
+        activeId="profile"
+        onNavigate={(id) => {
+          if (id === "home") router.push("/");
+          else if (id === "profiles") router.push("/profiles");
+        }}
+      />
     </main>
   );
 }
