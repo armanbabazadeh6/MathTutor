@@ -128,3 +128,31 @@ Gamification rules, server-only AI provider, and CSS-only polish effects landed 
 - Verify: `npx tsc --noEmit` exit 0; `npm test` 244/244 pass; `npm run build` passes;
   dev curl `/` `/plan` `/practice` `/admin` 200; throwaway tsx sim (deleted): intraday quest stability +
   lock, ace-a-domain -> grade-5 items + celebration keys, quest bonus + streak math, two-profile isolation. SIM OK.
+
+## Fixes audit: 4 P0s + 4 P1s (2026-09-07)
+
+- P0-1 InstallPrompt always rendered: `visible` was computed but never read in JSX, so the
+  dialog covered the bottom on all devices. Now returns null until visible; the show rule lives
+  in exported `shouldShowInstallPrompt({ standalone, dismissed, isIPad })` (iPad + browser +
+  not-dismissed). Dismiss persistence unchanged.
+- P0-2 divergent grading unified: `ProblemPlayer` graded via typeless float `parseAnswer`
+  (1e-9 tolerance) while teach-check used canonical `isCorrectAnswer` — right answers marked
+  wrong (`2.501` vs `2.50`, `6R2` vs `6 R 2`, `1000` vs `1,000`, `2/4`/`0.5` vs `1/2`). Session
+  `checkAnswer` now delegates to `isCorrectAnswer`; `GeneratedProblem` carries `answerType`
+  (threaded through `generateAssignment`, `questToAssignment`, follow-up converter); legacy
+  stored problems without a type infer it via `inferAnswerType`. `parseAnswer` kept as an
+  unused legacy export.
+- P0-3 UTC-vs-local dates: `todayStr()` used UTC `toISOString` while quests used local days, so
+  streaks/points could roll over at the wrong midnight. Now `todayStr()` = `localDateISO()`;
+  `recordResult` compares against `dayBefore(today)` (was: real-now yesterday, ignoring the
+  injected `today`); `recordGradedAttempt`/`recordReteachOutcome` thread `opts.today` into
+  `awardPoints` (was: dropped on the countStreak path). Gamification UTC-days comment fixed.
+- P0-4 iOS fraction slash: both answer inputs used `inputMode="decimal"` (no `/` on iOS) and
+  are now `inputMode="text"` + autocapitalize/autocorrect off + `enterKeyHint="go"` with an
+  on-screen keypad (`/`, `.`, `-`) via `src/lib/answerInput.ts` (`ANSWER_INPUT_MODE`,
+  `ANSWER_KEYPAD_CHARS`, `appendKeypadChar`).
+- P1s fixed in the same diffs: reteach lesson mistyped as `answerType: "text"` (fraction
+  equiv/decimal marked wrong in Teach Me); streak yesterday ignored explicit `today`;
+  effort-points `today` dropped on the default path; stale UTC comment.
+- Verify: `tests/fixes-audit.test.ts` 21 regression tests; `npm test` 304/304 pass;
+  `npx tsc --noEmit` exit 0; `npm run build` passes (10 static routes).

@@ -1,7 +1,8 @@
 import type { SkillDomain } from "./skills";
 import { SKILLS, SKILL_DOMAINS } from "./skills";
 import { ALL_SKILLS as ALL_GENERATOR_SKILLS, generateProblem } from "./math/generators";
-import type { MasteryMap } from "./math/types";
+import type { AnswerType, MasteryMap } from "./math/types";
+import { inferAnswerType, isCorrectAnswer } from "./math/answers";
 import { buildPlan, MAX_PER_SKILL_PER_PLAN } from "./plan/plan";
 import type { Plan } from "./plan/plan";
 import { DEFAULT_LEVEL, DEFAULT_MASTERY, clampLevel, levelToDifficulty } from "./plan/levels";
@@ -41,8 +42,10 @@ export interface GeneratedProblem {
   skillId: string;
   skillName: string;
   prompt: string;
-  /** Canonical answer, parseable by parseAnswer ("7", "3.5", "3/4"). */
+  /** Canonical answer, graded by isCorrectAnswer against answerType. */
   answer: string;
+  /** Canonical grading dispatch. Legacy stored problems omit it (inferred). */
+  answerType: AnswerType;
   hint1: string;
   hint2: string;
   explanation: string;
@@ -192,9 +195,7 @@ export function emptyProgress(): ProgressState {
     badges: [],
   };
 }
-
-// ---------- answer parsing: integers, decimals, "a/b" fractions ----------
-
+/** Legacy float parser kept for reference; grading no longer uses it. */
 export function parseAnswer(raw: string): number | null {
   const s = raw.trim().replace(/\s+/g, "");
   if (!s) return null;
@@ -219,11 +220,13 @@ export function parseAnswer(raw: string): number | null {
   return Number.isFinite(v) ? v : null;
 }
 
-export function checkAnswer(input: string, expected: string): boolean {
-  const a = parseAnswer(input);
-  const b = parseAnswer(expected);
-  if (a === null || b === null) return false;
-  return Math.abs(a - b) < 1e-9;
+/**
+ * Canonical grading for session problems: dispatches on the problem's
+ * answerType via isCorrectAnswer (same fn as teach-check). Legacy
+ * problems without a stored type infer it from the expected answer.
+ */
+export function checkAnswer(input: string, expected: string, answerType?: AnswerType): boolean {
+  return isCorrectAnswer(expected, input, answerType ?? inferAnswerType(expected));
 }
 
 // ---------- local problem composer (plan-driven; see generateAssignment) ----------
@@ -315,6 +318,7 @@ export function generateAssignment(
       skillName: skillNameOf(skillId),
       prompt: p.text,
       answer: p.answer,
+      answerType: p.answerType,
       hint1: p.hint1,
       hint2: p.hint2,
       explanation: p.explanation,
@@ -389,12 +393,15 @@ function saveProgress(p: ProgressState, profileId?: string | null): void {
 }
 
 function todayStr(): string {
-  return new Date().toISOString().slice(0, 10);
+  return localDateISO();
 }
-function yesterdayStr(): string {
-  const d = new Date();
+/** Local "YYYY-MM-DD" one calendar day before the given local date. */
+function dayBefore(dateISO: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateISO);
+  if (!m) return "";
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
   d.setDate(d.getDate() - 1);
-  return d.toISOString().slice(0, 10);
+  return localDateISO(d);
 }
 
 export interface BadgeDef {
@@ -449,7 +456,7 @@ export function recordResult(
   const countStreak = opts?.countStreak !== false;
   const today = opts?.today ?? todayStr();
   if (countStreak && progress.lastPlayedDate !== today) {
-    progress.streakCount = progress.lastPlayedDate === yesterdayStr() ? progress.streakCount + 1 : 1;
+    progress.streakCount = progress.lastPlayedDate === dayBefore(today) ? progress.streakCount + 1 : 1;
     progress.lastPlayedDate = today;
   }
 
@@ -752,7 +759,7 @@ export function recordGradedAttempt(
   const points =
     opts?.countStreak === false
       ? awardPointsNoStreak(events, opts?.today ?? todayStr(), profileId)
-      : awardPoints(events, undefined, profileId);
+      : awardPoints(events, opts?.today ?? todayStr(), profileId);
   return { ...res, state: s, points };
 }
 
@@ -776,7 +783,7 @@ export function recordReteachOutcome(
   const points =
     opts?.countStreak === false
       ? awardPointsNoStreak(events, opts?.today ?? todayStr(), profileId)
-      : awardPoints(events, undefined, profileId);
+      : awardPoints(events, opts?.today ?? todayStr(), profileId);
   return { ...res, state: s, points };
 }
 
@@ -918,6 +925,7 @@ export function questToAssignment(quest: Quest, profileId?: string | null): Assi
       skillName: skillNameOf(skillId),
       prompt: p.text,
       answer: p.answer,
+      answerType: p.answerType,
       hint1: p.hint1,
       hint2: p.hint2,
       explanation: p.explanation,

@@ -80,7 +80,7 @@ function toDayNumber(dateStr: string): number | null {
   return Math.floor(day / 86_400_000);
 }
 
-/** True when `dateStr` is the calendar day before `todayStr` (UTC days). */
+/** True when `dateStr` is the calendar day before `todayStr` (local calendar days). */
 export function isYesterday(dateStr: string, todayStr: string): boolean {
   const d = toDayNumber(dateStr);
   const t = toDayNumber(todayStr);

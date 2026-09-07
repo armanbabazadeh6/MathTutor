@@ -97,3 +97,17 @@ export function isCorrectAnswer(expected: string, submitted: string, answerType:
       return compareText(expected, submitted);
   }
 }
+
+/**
+ * Best-effort answer type for a canonical answer string. Used when grading
+ * typeless session problems (assignments persisted before answerType was
+ * stored): fraction-looking answers grade as fractions, comma-tolerated
+ * integers as integers, other numerics as decimals, the rest as text.
+ */
+export function inferAnswerType(expected: string): AnswerType {
+  if (parseFraction(expected)) return "fraction";
+  if (numericValue(expected) !== null) {
+    return /^[+-]?[\d,]+$/.test(expected.trim()) ? "integer" : "decimal";
+  }
+  return "text";
+}
