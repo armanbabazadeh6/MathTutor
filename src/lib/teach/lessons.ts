@@ -740,6 +740,299 @@ function lessonCoordPlane(p: Problem): LessonStep[] {
   ];
 }
 
+function lessonAngleTypes(p: Problem): LessonStep[] {
+  const m = p.text.match(/(\d+)\s*degrees/);
+  const nums = allNumbers(p.text);
+  const deg = m ? Number(m[1]) : (nums[0] ?? 0);
+  const kind = p.answer.toLowerCase();
+  return [
+    step(
+      "A square corner is the dividing line",
+      `Your angle is ${deg} degrees. Hold it against a square corner (exactly 90 degrees): is yours sharper and smaller, exactly the same, or wider? That one comparison decides everything.`,
+      "text",
+      [deg],
+    ),
+    step(
+      "Sort it into three boxes",
+      `Smaller than 90 is acute (sharp), exactly 90 is right (square corner), between 90 and 180 is obtuse (wide). Your ${deg} degrees lands in the ${kind} box.`,
+      "number-line",
+      [deg, 90],
+    ),
+    step(
+      "Say why in one sentence",
+      `${deg} degrees is ${kind} because ${deg === 90 ? "it equals 90 exactly" : deg < 90 ? `${deg} is less than 90` : `${deg} is more than 90 but less than 180`}. One number, one comparison, one word.`,
+      "text",
+      [deg, 90],
+    ),
+    tryItStep(p, [deg]),
+  ];
+}
+
+function lessonTriangles(p: Problem): LessonStep[] {
+  const ms = p.text.match(/side lengths (\d+) cm, (\d+) cm, and (\d+) cm/);
+  if (ms) {
+    const a = Number(ms[1]);
+    const b = Number(ms[2]);
+    const c = Number(ms[3]);
+    const kind = p.answer.toLowerCase();
+    const matchDesc =
+      kind === "equilateral" ? "all three match" : kind === "isosceles" ? "exactly two match" : "none match";
+    return [
+      step(
+        "List the three sides",
+        `Your sides are ${a} cm, ${b} cm, and ${c} cm. Write them in a row and draw lines between the ones that are equal.`,
+        "text",
+        [a, b, c],
+      ),
+      step(
+        "Count the matches",
+        `Compare ${a} vs ${b} vs ${c}: ${matchDesc}. All 3 equal is equilateral, exactly 2 equal is isosceles, none equal is scalene.`,
+        "break-apart",
+        [a, b, c],
+      ),
+      step(
+        "Name it",
+        `Since ${matchDesc}, this triangle is ${kind}. Side lengths decide: count matches, then pick the word.`,
+        "text",
+        [a, b, c],
+      ),
+      tryItStep(p, [a, b, c]),
+    ];
+  }
+  const ma = p.text.match(/angles (\d+)°, (\d+)°, and (\d+)°/);
+  const nums = allNumbers(p.text);
+  const x = ma ? Number(ma[1]) : (nums[0] ?? 0);
+  const y = ma ? Number(ma[2]) : (nums[1] ?? 0);
+  const z = ma ? Number(ma[3]) : (nums[2] ?? 0);
+  const big = Math.max(x, y, z);
+  const kind = p.answer.toLowerCase();
+  return [
+    step(
+      "Find the biggest angle",
+      `Your angles are ${x}°, ${y}°, and ${z}°. The biggest one is ${big}° — it decides the triangle's type all by itself.`,
+      "text",
+      [x, y, z, big],
+    ),
+    step(
+      "Compare the biggest to 90",
+      `Is ${big}° below 90 (acute), exactly 90 (right), or above 90 (obtuse)? The whole triangle takes the name of its biggest angle.`,
+      "number-line",
+      [x, y, z, big],
+    ),
+    step(
+      "Name it",
+      `The biggest angle is ${big}°, so this triangle is ${kind}. One comparison, one word — done.`,
+      "text",
+      [x, y, z],
+    ),
+    tryItStep(p, [x, y, z]),
+  ];
+}
+
+function lessonSymmetry(p: Problem): LessonStep[] {
+  const m = p.text.match(/does a (.+) have\?/);
+  const shape = m ? m[1] : "shape";
+  const lines = Number(p.answer);
+  const wn = Number.isFinite(lines) ? [lines] : [0];
+  return [
+    step(
+      "Fold it in your head",
+      `Your shape is a ${shape}. Imagine folding it: a line of symmetry is a fold where both halves land exactly on top of each other.`,
+      "text",
+      [...wn],
+    ),
+    step(
+      "Count every matching fold",
+      lines === 0
+        ? `Try every fold of the ${shape} — none makes the halves match, so the count stops at 0. Zero is a real answer.`
+        : `Keep folding the ${shape} different ways. Each fold that matches counts once — this shape has ${lines} in all.`,
+      "break-apart",
+      [...wn],
+    ),
+    step(
+      "Say the count",
+      `A ${shape} has ${lines} line${lines === 1 ? "" : "s"} of symmetry. Folds that match: count them, and that count is the answer.`,
+      "text",
+      [...wn],
+    ),
+    tryItStep(p, [...wn]),
+  ];
+}
+
+function lessonElapsedTime(p: Problem): LessonStep[] {
+  const m = p.text.match(/starts at (.+?) and ends at (.+?)\./);
+  const startLabel = m ? m[1] : "";
+  const endLabel = m ? m[2] : "";
+  const dur = Number(p.answer);
+  const nums = allNumbers(p.text);
+  const wn = [...nums.slice(0, 4), dur];
+  return [
+    step(
+      "Hop to the next hour first",
+      `Class runs ${startLabel} to ${endLabel}. First hop from ${startLabel} up to the next whole hour — write down those minutes.`,
+      "number-line",
+      [...wn],
+    ),
+    step(
+      "Add the rest of the ride",
+      `From that whole hour, count forward to ${endLabel} and add both hops together. Hours turn into 60 minutes each: the total is ${dur} minutes.`,
+      "number-line",
+      [...wn],
+    ),
+    step(
+      "Check by subtracting",
+      `Check it: end minutes minus start minutes equals ${dur}. If the end minutes look smaller, borrow 1 hour as 60 minutes first.`,
+      "text",
+      [...wn],
+    ),
+    tryItStep(p, [...wn]),
+  ];
+}
+
+function lessonFractionNumberLine(p: Problem): LessonStep[] {
+  const m = p.text.match(/from 0 to (\d+) is split into \w+ \(each whole cut into (\d+) equal parts\)\. A dot sits at tick (\d+)/);
+  const nums = allNumbers(p.text);
+  const N = m ? Number(m[1]) : (nums[0] ?? 1);
+  const d = m ? Number(m[2]) : (nums[1] ?? 2);
+  const t = m ? Number(m[3]) : (nums[2] ?? 1);
+  return [
+    step(
+      "Name one jump",
+      `Each whole from 0 to ${N} is cut into ${d} equal parts, so one tick-jump is 1/${d}. The number line is just ${d}ths marching from 0.`,
+      "number-line",
+      [N, d, t],
+    ),
+    step(
+      "Count the jumps",
+      `The dot sits at tick ${t}, so count ${t} jumps of 1/${d}: that is ${t}/${d}. Ticks count jumps, and jumps name the fraction.`,
+      "number-line",
+      [N, d, t],
+    ),
+    step(
+      "Simplify if you can",
+      `Look at ${t}/${d}: if top and bottom share a factor, divide both by it. If not, ${t}/${d} is already finished.`,
+      "text",
+      [N, d, t],
+    ),
+    tryItStep(p, [N, d, t]),
+  ];
+}
+
+function lessonDecimalPlaceValue(p: Problem): LessonStep[] {
+  const m = p.text.match(/In the number ([\d.]+), what is the value of the digit in the (\w+) place/);
+  const nums = allNumbers(p.text);
+  const x = m ? Number(m[1]) : (nums[0] ?? 0);
+  const place = m ? m[2] : "tenths";
+  const val = Number(p.answer);
+  return [
+    step(
+      "Point at the address",
+      `Your number is ${m ? m[1] : x}. The first digit after the point lives in tenths, the second in hundredths — find the ${place} digit and circle it.`,
+      "text",
+      [x, val],
+    ),
+    step(
+      "The address sets the worth",
+      `A digit in the ${place} place is worth that digit times ${place === "tenths" ? "1/10" : "1/100"}. Here that works out to ${p.answer}. Position is power.`,
+      "break-apart",
+      [x, val],
+    ),
+    step(
+      "Say value, not digit",
+      `The digit and its value are different things: in ${m ? m[1] : x} the ${place} digit is worth ${p.answer}, not just the digit by itself.`,
+      "text",
+      [x, val],
+    ),
+    tryItStep(p, [x, val]),
+  ];
+}
+
+function lessonCompositePerimeter(p: Problem): LessonStep[] {
+  const m = p.text.match(/from a (\d+) m by (\d+) m rectangle with a (\d+) m by (\d+) m/);
+  const nums = allNumbers(p.text);
+  const W = m ? Number(m[1]) : (nums[0] ?? 0);
+  const H = m ? Number(m[2]) : (nums[1] ?? 0);
+  const a = m ? Number(m[3]) : (nums[2] ?? 0);
+  const b = m ? Number(m[4]) : (nums[3] ?? 0);
+  const total = 2 * (W + H);
+  return [
+    step(
+      "Walk the whole edge",
+      `Your patio starts as a ${W} m by ${H} m rectangle with a ${a} m by ${b} m corner cut out. Perimeter means walking every edge — outer AND the inner notch walls.`,
+      "text",
+      [W, H, a, b],
+    ),
+    step(
+      "The notch gives back what it takes",
+      `The cut removes ${a} m of outer edge but adds ${a} m of inner wall (same for ${b} m). So the L-shape walks exactly as far as the full rectangle: 2 × (${W} + ${H}) = ${total} m.`,
+      "break-apart",
+      [W, H, a, b, total],
+    ),
+    tryItStep(p, [W, H, a, b]),
+  ];
+}
+
+function lessonMultistepWord(p: Problem): LessonStep[] {
+  const nums = allNumbers(p.text);
+  const ans = Number(p.answer);
+  const shown = nums.length ? nums : [ans];
+  const first = shown.slice(0, 2);
+  const rest = shown.slice(2);
+  return [
+    step(
+      "Underline the two steps",
+      `Your story says: “${p.text}” Underline the numbers (${shown.join(", ")}) and mark the two jobs: first find a hidden amount, then use it for the final question.`,
+      "text",
+      [...shown],
+    ),
+    step(
+      "Do the hidden step first",
+      `Combine ${first.join(" and ")} first — that hidden amount (${first.length > 1 ? "add, subtract, or multiply them as the story says" : "work it out"}) unlocks the rest of the problem.`,
+      "break-apart",
+      [...first, ...rest.slice(0, 1)],
+    ),
+    step(
+      "Finish with the second step",
+      `Take that hidden amount and ${rest.length ? `combine it with ${rest.join(" and ")}` : "finish the story"} to land on ${ans}. Two small steps beat one big leap.`,
+      "text",
+      [...(rest.length ? rest : first), ans],
+    ),
+    tryItStep(p, [...shown, ans]),
+  ];
+}
+
+function lessonCompareFractions(p: Problem): LessonStep[] {
+  const m = p.text.match(/(\d+)\/(\d+) or (\d+)\/(\d+)/);
+  const nums = allNumbers(p.text);
+  const a = m ? Number(m[1]) : (nums[0] ?? 0);
+  const d1 = m ? Number(m[2]) : (nums[1] ?? 1);
+  const b = m ? Number(m[3]) : (nums[2] ?? 0);
+  const d2 = m ? Number(m[4]) : (nums[3] ?? 1);
+  const left = a * d2;
+  const right = b * d1;
+  return [
+    step(
+      "Picture two same-size pies",
+      `Your fractions are ${a}/${d1} and ${b}/${d2}. Same-size pies, different cuts: ${d1} slices vs ${d2} slices. Bigger slices can beat more slices.`,
+      "text",
+      [a, d1, b, d2],
+    ),
+    step(
+      "Ask each half: are you past it?",
+      `Benchmark against 1/2: is ${a}/${d1} more or less than half? Is ${b}/${d2}? If one passes half and the other does not, you are done already.`,
+      "number-line",
+      [a, d1, b, d2],
+    ),
+    step(
+      "Cross-multiply to be sure",
+      `${a} × ${d2} = ${left} versus ${b} × ${d1} = ${right}. The side with the bigger product holds the bigger fraction — no guessing.`,
+      "break-apart",
+      [a, d1, b, d2, left, right],
+    ),
+    tryItStep(p, [a, d1, b, d2]),
+  ];
+}
+
 function lessonFallback(p: Problem): LessonStep[] {
   const nums = allNumbers(p.text + " " + p.answer);
   const shown = nums.length ? nums : [0];
@@ -792,6 +1085,15 @@ const BUILDERS: Record<string, (p: Problem) => LessonStep[]> = {
   "md-volume": lessonVolume,
   "oa-order-ops": lessonOrderOps,
   "geo-coord-plane": lessonCoordPlane,
+  "geo-angles-types": lessonAngleTypes,
+  "geo-triangles": lessonTriangles,
+  "geo-symmetry": lessonSymmetry,
+  "md-time": lessonElapsedTime,
+  "fr-mixed-numbers": lessonFractionNumberLine,
+  "fr-decimals-tenths": lessonDecimalPlaceValue,
+  "geo-composite-shapes": lessonCompositePerimeter,
+  "oa-multistep-word": lessonMultistepWord,
+  "fr-compare": lessonCompareFractions,
 };
 
 const TITLES: Record<string, string> = {
@@ -810,13 +1112,22 @@ const TITLES: Record<string, string> = {
   "bt-place-value": "Place value: every digit has an address",
   "bt-rounding": "Rounding to the nearest neighbor",
   "fr-add-unlike-5": "Adding fractions with different bottoms",
+  "oa-order-ops": "Order of operations: what goes first",
+  "geo-coord-plane": "Coordinates: right first, then up",
+  "geo-angles-types": "Angle types: acute, right, or obtuse",
+  "geo-triangles": "Classifying triangles by sides and angles",
+  "geo-symmetry": "Lines of symmetry",
+  "md-time": "Elapsed time in minutes",
+  "fr-mixed-numbers": "Fractions on the number line",
+  "fr-decimals-tenths": "Decimal place value: what each digit is worth",
+  "geo-composite-shapes": "Perimeter of L-shapes",
+  "oa-multistep-word": "Two-step word problems",
+  "fr-compare": "Comparing fractions with pictures",
   "fr-sub-unlike-5": "Subtracting fractions with different bottoms",
   "fr-mult-whole-adv": "Multiplying a fraction by a whole number",
   "bt-dec-add-sub": "Adding and subtracting decimals",
   "bt-dec-mult-pow10": "Multiplying decimals by 10, 100, 1000",
   "md-volume": "Volume: counting cubes",
-  "oa-order-ops": "Order of operations: what goes first",
-  "geo-coord-plane": "Coordinates: right first, then up",
 };
 
 export const LESSON_SKILLS: string[] = Object.keys(BUILDERS);
