@@ -148,7 +148,7 @@ export function RewardManager() {
                     <button
                       type="button"
                       onClick={() => startEdit(r.id)}
-                      className="touch-target text-sm font-bold text-primary underline"
+                      className="touch-target text-sm font-bold text-primaryink underline"
                     >
                       Edit
                     </button>
@@ -156,7 +156,7 @@ export function RewardManager() {
                       type="button"
                       onClick={() => actions.setActive(r.id, !r.active)}
                       aria-pressed={r.active}
-                      className="touch-target text-sm font-bold text-primary underline"
+                      className="touch-target text-sm font-bold text-primaryink underline"
                     >
                       {r.active ? "Deactivate" : "Activate"}
                     </button>
@@ -214,7 +214,7 @@ export function RewardManager() {
             </label>
           </div>
           {formError ? (
-            <p role="alert" className="mt-2 text-sm font-bold text-coral">
+            <p role="alert" className="mt-2 text-sm font-bold text-coralink">
               {formError}
             </p>
           ) : null}

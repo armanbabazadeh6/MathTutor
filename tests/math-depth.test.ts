@@ -16,6 +16,25 @@ import {
 import { buildLesson, isLessonSupported } from "../src/lib/teach/lessons";
 import type { Problem } from "../src/lib/math/types";
 
+/**
+ * Every member of the `VisualModel` union in `src/lib/visual/models.ts`.
+ * Duplicated deliberately: a change to that union should fail this test.
+ */
+const LESSON_VISUAL_KINDS = [
+  "fraction-bar",
+  "number-line",
+  "area-model",
+  "place-value",
+  "coordinate-grid",
+  "angle",
+  "unit-cubes",
+  "clock",
+  "polygon",
+  "symmetry",
+  "bar-graph",
+  "number-chips",
+];
+
 /* Depth batch 2: angle types, triangle classification, symmetry, elapsed time,
    fraction number lines, decimal place value, composite perimeter, multi-step
    word problems, comparing fractions. */
@@ -416,7 +435,14 @@ test("new skills have teachable lessons with valid shape", () => {
     const hay = (p.text + " " + p.answer).replace(/,/g, "");
     for (const s of lesson.steps) {
       assert.ok(s.title.length > 0 && s.body.length > 0, `${skill} empty step`);
-      assert.ok(["text", "number-line", "break-apart"].includes(s.visual), `${skill} bad visual`);
+      // A step either carries a real visual model or nothing at all — the old
+      // opaque "text" | "number-line" strings are gone.
+      if (s.visual !== null) {
+        assert.ok(
+          LESSON_VISUAL_KINDS.includes(s.visual.kind),
+          `${skill} unknown visual kind: ${s.visual.kind}`,
+        );
+      }
       assert.ok(s.workedNumbers.length > 0, `${skill} step without numbers`);
       assert.ok(
         s.workedNumbers.some((n) => hay.includes(String(n))),

@@ -131,12 +131,12 @@ export function QuestControls() {
               />
             </div>
             {error ? (
-              <p className="text-kid-base font-bold text-coral" role="alert">
+              <p className="text-kid-base font-bold text-coralink" role="alert">
                 {error}
               </p>
             ) : null}
             {notice ? (
-              <p className="text-kid-base font-bold text-primary" role="status">
+              <p className="text-kid-base font-bold text-primaryink" role="status">
                 {notice}
               </p>
             ) : null}

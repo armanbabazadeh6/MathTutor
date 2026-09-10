@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { ChunkyButton } from "@/components/duo/ChunkyButton";
 import { INSTALL_DISMISSED_KEY } from "@/lib/sound";
 
 function isStandalone(): boolean {
@@ -70,25 +71,21 @@ export function InstallPrompt() {
   return (
     <div
       role="dialog"
-      aria-live="polite"
       aria-label="Add MathTutor to your Home Screen"
-      className="fixed inset-x-3 bottom-3 z-50 rounded-2xl bg-white p-4 shadow-xl"
+      className="fixed inset-x-3 bottom-3 z-50 rounded-card border-2 border-line bg-card p-4 shadow-lift"
+      style={{ bottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}
     >
-      <p className="text-base font-extrabold">📲 Add MathTutor to your Home Screen</p>
-      <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm font-semibold text-slate-600">
+      <p className="font-display text-kid-base font-bold">📲 Add MathTutor to your Home Screen</p>
+      <ol className="mt-2 list-decimal space-y-1 pl-5 text-kid-sm font-semibold text-muted">
         <li>
           Tap <span aria-hidden>⎙</span> Share in Safari&apos;s toolbar
         </li>
         <li>Tap “Add to Home Screen”</li>
         <li>Tap “Add” — then open it like an app</li>
       </ol>
-      <button
-        type="button"
-        onClick={dismiss}
-        className="mt-3 rounded-full bg-slate-100 px-4 py-2 text-sm font-extrabold"
-      >
+      <ChunkyButton size="sm" variant="secondary" className="mt-3" onClick={dismiss}>
         Got it
-      </button>
+      </ChunkyButton>
     </div>
   );
 }

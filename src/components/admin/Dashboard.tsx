@@ -85,7 +85,7 @@ function MasteryRow({
           <button
             type="button"
             onClick={onToggle}
-            className="touch-target text-sm font-bold text-primary underline"
+            className="touch-target text-sm font-bold text-primaryink underline"
             aria-pressed={!disabled}
           >
             {disabled ? "Enable" : "Disable"}
@@ -106,7 +106,7 @@ function MasteryRow({
         <button
           type="button"
           onClick={() => onSet(Number(draft))}
-          className="touch-target text-sm font-bold text-primary underline"
+          className="touch-target text-sm font-bold text-primaryink underline"
         >
           Set
         </button>
@@ -319,9 +319,9 @@ export function Dashboard() {
                     {p.examples.map((e) => (
                       <li key={e.questionId}>
                         <span className="font-bold">{e.questionId}:</span> answered{" "}
-                        <span className="font-bold text-coral">{e.givenAnswer}</span>,
+                        <span className="font-bold text-coralink">{e.givenAnswer}</span>,
                         expected{" "}
-                        <span className="font-bold text-primary">{e.expectedAnswer}</span>
+                        <span className="font-bold text-primaryink">{e.expectedAnswer}</span>
                       </li>
                     ))}
                   </ul>
