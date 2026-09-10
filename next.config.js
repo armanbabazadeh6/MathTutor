@@ -34,6 +34,12 @@ const securityHeaders = [
 
 const nextConfig = {
   poweredByHeader: false,
+  // Several agents work this checkout at once. Two `next dev`/`next build`
+  // processes sharing one `.next` clobber each other's manifest mid-write,
+  // which surfaces as intermittent 404s and "missing required error
+  // components". `NEXT_DIST_DIR` gives each process its own build directory so
+  // a build can run beside a dev server; unset, this is exactly `.next`.
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },

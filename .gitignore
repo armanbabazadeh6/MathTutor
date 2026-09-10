@@ -1,8 +1,8 @@
 # dependencies
 node_modules/
 
-# next.js
-.next/
+# next.js (per-agent build dirs: NEXT_DIST_DIR=.next-<agent>)
+.next*/
 out/
 build/
 
