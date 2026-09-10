@@ -17,10 +17,15 @@ export function ProgressBar({
         aria-valuenow={value}
         aria-valuemin={0}
         aria-valuemax={max}
+        aria-label={label}
       >
         <div
           className="duo-shine-wrap relative h-full rounded-pill transition-[width] duration-300"
-          style={{ width: `${pct}%`, background: "var(--color-primary)", borderRight: "2px solid var(--color-primary-dark)" }}
+          style={{
+            width: `${pct}%`,
+            background: "var(--color-primary-btn)",
+            borderRight: "2px solid var(--color-primary-ink)",
+          }}
         >
           <span aria-hidden className="duo-shine-bar" />
         </div>

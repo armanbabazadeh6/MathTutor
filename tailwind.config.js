@@ -1,39 +1,55 @@
+/**
+ * Tailwind theme.
+ *
+ * Colours resolve through `rgb(var(--rgb-*) / <alpha-value>)` — the channel
+ * form Tailwind needs for opacity modifiers (`bg-ink/45`, `bg-card/95`).
+ * A bare `var(--color-x)` silently drops the class, which is how the app ended
+ * up with invisible scrims and unfilled hint boxes. The hex `--colour-*` vars
+ * in globals.css remain for hand-written CSS; both come from one palette.
+ */
+const channel = (name) => `rgb(var(--rgb-${name}) / <alpha-value>)`;
+
 /** @type {import('tailwindcss').Config} */
 module.exports = {
   content: ["./src/**/*.{ts,tsx}"],
   theme: {
     extend: {
       colors: {
-        cream: "var(--color-cream)",
-        "cream-deep": "var(--color-cream-deep)",
-        ink: "var(--color-ink)",
-        "ink-soft": "var(--color-ink-soft)",
-        primary: "var(--color-primary)",
-        primarybtn: "var(--color-primary-btn)",
-        primarydark: "var(--color-primary-dark)",
-        primarydeep: "var(--color-primary-deep)",
-        primaryink: "var(--color-primary-ink)",
-        accent: "var(--color-accent)",
-        accentdark: "var(--color-accent-dark)",
-        accentink: "var(--color-accent-ink)",
-        sunny: "var(--color-sunny)",
-        sunnydark: "var(--color-sunny-dark)",
-        sunnyink: "var(--color-sunny-ink)",
-        mint: "var(--color-mint)",
-        mintdeep: "var(--color-mint-deep)",
-        coral: "var(--color-coral)",
-        coraldark: "var(--color-coral-dark)",
-        coralink: "var(--color-coral-ink)",
-        sky: "var(--color-sky)",
-        skydark: "var(--color-sky-dark)",
-        skyink: "var(--color-sky-ink)",
-        grape: "var(--color-grape)",
-        grapedark: "var(--color-grape-dark)",
-        grapeink: "var(--color-grape-ink)",
-        card: "var(--color-card)",
-        line: "var(--color-line)",
-        "line-soft": "var(--color-line-soft)",
-        muted: "var(--color-muted)",
+        cream: channel("cream"),
+        "cream-deep": channel("cream-deep"),
+        ink: channel("ink"),
+        "ink-soft": channel("ink-soft"),
+        muted: channel("muted"),
+        card: channel("card"),
+        line: channel("line"),
+        "line-soft": channel("line-soft"),
+        primary: channel("primary"),
+        primarybtn: channel("primary-btn"),
+        primarydark: channel("primary-dark"),
+        primarydeep: channel("primary-deep"),
+        primaryink: channel("primary-ink"),
+        accent: channel("accent"),
+        accentdark: channel("accent-dark"),
+        accentink: channel("accent-ink"),
+        sunny: channel("sunny"),
+        sunnydark: channel("sunny-dark"),
+        sunnyink: channel("sunny-ink"),
+        mint: channel("mint"),
+        mintdeep: channel("mint-deep"),
+        coral: channel("coral"),
+        coraldark: channel("coral-dark"),
+        coralink: channel("coral-ink"),
+        sky: channel("sky"),
+        skydark: channel("sky-dark"),
+        skyink: channel("sky-ink"),
+        grape: channel("grape"),
+        grapedark: channel("grape-dark"),
+        grapeink: channel("grape-ink"),
+        "primary-soft": channel("primary-soft"),
+        "sunny-soft": channel("sunny-soft"),
+        "sky-soft": channel("sky-soft"),
+        "coral-soft": channel("coral-soft"),
+        "grape-soft": channel("grape-soft"),
       },
       borderRadius: {
         xs: "var(--radius-xs)",
@@ -65,34 +81,12 @@ module.exports = {
         "chunky-lg": "var(--shadow-chunky-lg)",
         float: "var(--shadow-float)",
         lift: "var(--shadow-lift)",
-        pop: "0 6px 0 rgba(43,38,32,0.18), 0 12px 24px rgba(43,38,32,0.12)",
       },
       transitionTimingFunction: {
         soft: "cubic-bezier(0.22, 0.9, 0.28, 1)",
         spring: "cubic-bezier(0.34, 1.56, 0.64, 1)",
       },
       keyframes: {
-        "duo-pop": {
-          "0%": { transform: "scale(0.6)", opacity: "0" },
-          "60%": { transform: "scale(1.08)", opacity: "1" },
-          "100%": { transform: "scale(1)", opacity: "1" },
-        },
-        "duo-wiggle": {
-          "0%, 100%": { transform: "rotate(-3deg)" },
-          "50%": { transform: "rotate(3deg)" },
-        },
-        "duo-bounce-soft": {
-          "0%, 100%": { transform: "translateY(0)" },
-          "50%": { transform: "translateY(-8px)" },
-        },
-        "duo-float": {
-          "0%, 100%": { transform: "translateY(0)" },
-          "50%": { transform: "translateY(-6px)" },
-        },
-        "duo-shine": {
-          "0%": { transform: "translateX(-100%) skewX(-20deg)" },
-          "100%": { transform: "translateX(220%) skewX(-20deg)" },
-        },
         "mt-rise": {
           "0%": { transform: "translateY(10px)", opacity: "0" },
           "100%": { transform: "translateY(0)", opacity: "1" },
@@ -109,26 +103,15 @@ module.exports = {
           "78%": { transform: "scale(0.96) rotate(-2deg)" },
           "100%": { transform: "scale(1) rotate(0deg)", opacity: "1" },
         },
-        "mt-flicker": {
-          "0%, 100%": { transform: "scale(1) rotate(-1.5deg)", opacity: "1" },
-          "35%": { transform: "scale(1.07) rotate(1.5deg)", opacity: "0.94" },
-          "70%": { transform: "scale(0.98) rotate(-0.5deg)", opacity: "1" },
-        },
         "mt-slide-up": {
           "0%": { transform: "translateY(24px)", opacity: "0" },
           "100%": { transform: "translateY(0)", opacity: "1" },
         },
       },
       animation: {
-        "duo-pop": "duo-pop 300ms cubic-bezier(0.34, 1.56, 0.64, 1) both",
-        "duo-wiggle": "duo-wiggle 480ms ease-in-out",
-        "duo-bounce-soft": "duo-bounce-soft 900ms ease-in-out infinite",
-        "duo-float": "duo-float 2600ms ease-in-out infinite",
-        "duo-shine": "duo-shine 2400ms ease-in-out infinite",
         "mt-rise": "mt-rise 360ms cubic-bezier(0.22, 0.9, 0.28, 1) both",
         "mt-xp-fly": "mt-xp-fly 1200ms cubic-bezier(0.22, 0.9, 0.28, 1) both",
         "mt-medal": "mt-medal 720ms cubic-bezier(0.34, 1.56, 0.64, 1) both",
-        "mt-flicker": "mt-flicker 1400ms ease-in-out infinite",
         "mt-slide-up": "mt-slide-up 360ms cubic-bezier(0.22, 0.9, 0.28, 1) both",
       },
     },

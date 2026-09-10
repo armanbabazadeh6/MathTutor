@@ -6,5 +6,8 @@ export { StreakFlame } from "./StreakFlame";
 export { GemCounter } from "./GemCounter";
 export { HeartBar } from "./HeartBar";
 export { DuoCard } from "./Card";
+export { Alert } from "./Alert";
+export { EmptyState } from "./EmptyState";
+export { ProgressBar } from "./ProgressBar";
 export { BottomNav } from "./BottomNav";
 export type { NavItem } from "./BottomNav";

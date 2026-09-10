@@ -13,11 +13,11 @@
 
 :root {
   /* --- Surfaces --------------------------------------------------------- */
-  --color-cream: #fff8ea;
-  --color-cream-deep: #fdf0d9;
+  --color-cream: #fdf3e1;
+  --color-cream-deep: #f9e8cd;
   --color-card: #ffffff;
-  --color-line: #efdfc4;
-  --color-line-soft: #f6ecda;
+  --color-line: #e8d5b0;
+  --color-line-soft: #f4e9d6;
 
   /* --- Ink ramp (warm neutrals) ----------------------------------------- */
   --color-ink: #3f3a32; /* 10.7:1 on white */
@@ -52,6 +52,55 @@
   --color-grape-dark: #a568cc;
   --color-grape-ink: #7d3fae; /* 5.0:1 on white */
 
+  /* --- Soft tints -------------------------------------------------------
+     Pale fills for chips/badges. Pair only with the matching `*-ink` text:
+     vivid accents as a *fill* cannot carry readable text at any size. */
+  --color-primary-soft: #e4ffc9;
+  --color-sunny-soft: #fff0bf;
+  --color-sky-soft: #d6f0ff;
+  --color-coral-soft: #ffe0e0;
+  --color-grape-soft: #f0e1ff;
+
+  /* --- RGB channels -----------------------------------------------------
+     Tailwind's `/opacity` modifier needs a raw channel triplet, not a hex.
+     Every theme colour is exposed twice: the hex var for hand-written CSS and
+     its channels for `bg-ink/45`, `bg-card/95`, `bg-mint/40` and friends. */
+  --rgb-cream: 253 243 225;
+  --rgb-cream-deep: 249 232 205;
+  --rgb-card: 255 255 255;
+  --rgb-line: 232 213 176;
+  --rgb-line-soft: 244 233 214;
+  --rgb-ink: 63 58 50;
+  --rgb-ink-soft: 90 81 72;
+  --rgb-muted: 122 109 92;
+  --rgb-primary: 88 204 2;
+  --rgb-primary-btn: 58 132 0;
+  --rgb-primary-dark: 70 163 2;
+  --rgb-primary-deep: 47 125 98;
+  --rgb-primary-ink: 53 127 2;
+  --rgb-accent: 255 150 0;
+  --rgb-accent-dark: 224 127 0;
+  --rgb-accent-ink: 168 83 0;
+  --rgb-sunny: 255 200 0;
+  --rgb-sunny-dark: 224 168 0;
+  --rgb-sunny-ink: 138 97 0;
+  --rgb-mint: 215 255 184;
+  --rgb-mint-deep: 183 240 138;
+  --rgb-coral: 255 92 92;
+  --rgb-coral-dark: 211 49 49;
+  --rgb-coral-ink: 196 43 43;
+  --rgb-sky: 28 176 246;
+  --rgb-sky-dark: 24 153 214;
+  --rgb-sky-ink: 11 110 158;
+  --rgb-grape: 206 130 255;
+  --rgb-grape-dark: 165 104 204;
+  --rgb-grape-ink: 125 63 174;
+  --rgb-primary-soft: 228 255 201;
+  --rgb-sunny-soft: 255 240 191;
+  --rgb-sky-soft: 214 240 255;
+  --rgb-coral-soft: 255 224 224;
+  --rgb-grape-soft: 240 225 255;
+
   /* --- Radii ------------------------------------------------------------ */
   --radius-xs: 0.75rem;
   --radius-sm: 1rem;
@@ -67,12 +116,12 @@
   /* --- Elevation --------------------------------------------------------
      Chunky 3D stacking: a solid offset for the "pressable block" look, plus
      soft ambient shadows for floating surfaces. Never a blurry grey blob. */
-  --chunky-shadow: rgba(63, 58, 50, 0.16);
+  --chunky-shadow: rgba(63, 58, 50, 0.22);
   --shadow-chunky-sm: 0 3px 0 var(--chunky-shadow);
   --shadow-chunky: 0 4px 0 var(--chunky-shadow);
   --shadow-chunky-lg: 0 6px 0 var(--chunky-shadow);
-  --shadow-float: 0 2px 4px rgba(63, 58, 50, 0.06), 0 12px 28px rgba(63, 58, 50, 0.12);
-  --shadow-lift: 0 4px 8px rgba(63, 58, 50, 0.08), 0 20px 44px rgba(63, 58, 50, 0.16);
+  --shadow-float: 0 1px 2px rgba(63, 58, 50, 0.08), 0 8px 20px rgba(63, 58, 50, 0.1);
+  --shadow-lift: 0 2px 6px rgba(63, 58, 50, 0.1), 0 18px 40px rgba(63, 58, 50, 0.18);
 
   /* --- Motion ----------------------------------------------------------- */
   --dur-instant: 90ms;

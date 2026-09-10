@@ -44,10 +44,9 @@ export function DuoCard({
   const hasHeader = Boolean(title || icon || eyebrow || action);
   return (
     <section
-      className={`rounded-card border-2 border-line ${flush ? "" : "p-5 sm:p-6"} ${
+      className={`rounded-card border-2 border-line shadow-chunky ${flush ? "" : "p-5 sm:p-6"} ${
         tones[tone]
       } ${shine ? "duo-shine-wrap" : ""} ${className}`}
-      style={{ boxShadow: "0 4px 0 var(--chunky-shadow)" }}
     >
       {hasHeader ? (
         <header

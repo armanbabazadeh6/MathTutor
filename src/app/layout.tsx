@@ -42,9 +42,10 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
+  // Deliberately no `maximumScale`/`userScalable` lock: blocking pinch-zoom is
+  // a WCAG 1.4.4 failure, and a kid may genuinely need to zoom a fraction bar.
   viewportFit: "cover",
-  themeColor: "#58cc02",
+  themeColor: "#3a8400",
 };
 
 export default function RootLayout({

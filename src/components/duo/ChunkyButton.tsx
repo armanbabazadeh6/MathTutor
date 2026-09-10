@@ -1,5 +1,6 @@
 "use client";
 
+import { forwardRef } from "react";
 import type { ButtonHTMLAttributes, PointerEvent, ReactNode } from "react";
 import { tapTick } from "@/components/effects/haptics";
 
@@ -79,20 +80,23 @@ type Props = ButtonHTMLAttributes<HTMLButtonElement> & {
 };
 
 /** Chunky 3D button with press-down physics. Original art, no third-party assets. */
-export function ChunkyButton({
-  variant = "primary",
-  size = "md",
-  fullWidth = false,
-  shine = false,
-  icon,
-  loading = false,
-  className = "",
-  children,
-  style,
-  onPointerDown,
-  disabled,
-  ...rest
-}: Props) {
+export const ChunkyButton = forwardRef<HTMLButtonElement, Props>(function ChunkyButton(
+  {
+    variant = "primary",
+    size = "md",
+    fullWidth = false,
+    shine = false,
+    icon,
+    loading = false,
+    className = "",
+    children,
+    style,
+    onPointerDown,
+    disabled,
+    ...rest
+  },
+  ref,
+) {
   const skin = skins[variant];
   const isDisabled = disabled || loading;
   const handlePointerDown = (e: PointerEvent<HTMLButtonElement>) => {
@@ -101,6 +105,7 @@ export function ChunkyButton({
   };
   return (
     <button
+      ref={ref}
       onPointerDown={handlePointerDown}
       disabled={isDisabled}
       aria-busy={loading || undefined}
@@ -128,4 +133,4 @@ export function ChunkyButton({
       {shine && !isDisabled ? <span aria-hidden className="duo-shine-bar" /> : null}
     </button>
   );
-}
+});

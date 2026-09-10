@@ -1,6 +1,8 @@
 "use client";
 
 import React from "react";
+import { ChunkyButton } from "@/components/duo/ChunkyButton";
+import { Character } from "@/components/duo/Character";
 
 interface ErrorGateState {
   error: Error | null;
@@ -37,22 +39,16 @@ export class ErrorGate extends React.Component<
     return (
       <div
         role="alert"
-        className="flex min-h-screen flex-col items-center justify-center gap-4 bg-amber-50 p-6 text-center"
+        className="mx-auto flex min-h-screen w-full max-w-md flex-col items-center justify-center gap-5 p-6 text-center"
       >
-        <div aria-hidden className="text-6xl">
-          🦁
-        </div>
-        <h1 className="text-2xl font-extrabold">Oops! Leo tripped.</h1>
-        <p className="max-w-sm text-base font-semibold text-slate-600">
+        <Character pose="oops" size={132} label="Mascot looking apologetic" />
+        <h1 className="font-display text-kid-2xl font-semibold">Oops! Something tripped.</h1>
+        <p className="text-kid-base font-semibold text-muted">
           Your stars and progress are safe. Let&apos;s try that screen again.
         </p>
-        <button
-          type="button"
-          onClick={this.retry}
-          className="rounded-full bg-green-500 px-6 py-3 text-lg font-extrabold text-white shadow-md transition active:scale-95"
-        >
-          Try Again
-        </button>
+        <ChunkyButton size="lg" onClick={this.retry}>
+          Try again
+        </ChunkyButton>
       </div>
     );
   }
