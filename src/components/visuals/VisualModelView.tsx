@@ -16,17 +16,23 @@ export function VisualModelView({
   model,
   label,
   className,
+  reveal = false,
 }: {
   model: VisualModel;
   /** Accessible description override. */
   label?: string;
   className?: string;
+  /**
+   * Teach/results mode: draw the worked result too. Practice must leave this
+   * false — a practice visual is a scaffold, never an answer key.
+   */
+  reveal?: boolean;
 }): JSX.Element {
-  const { height, body } = renderModel(model);
+  const { height, body } = renderModel(model, reveal);
   return (
     <div
       role="img"
-      aria-label={label ?? describeVisual(model)}
+      aria-label={label ?? describeVisual(model, { reveal })}
       className={`w-full max-w-full${className ? ` ${className}` : ""}`}
     >
       <svg
@@ -78,28 +84,28 @@ function wrapText(text: string, maxChars: number): string[] {
   return lines.slice(0, 3);
 }
 
-function renderModel(model: VisualModel): { height: number; body: ReactNode } {
+function renderModel(model: VisualModel, reveal: boolean): { height: number; body: ReactNode } {
   switch (model.kind) {
     case "fraction-bar":
       return fractionBar(model);
     case "number-line":
-      return numberLine(model);
+      return numberLine(model, reveal);
     case "area-model":
-      return areaModel(model);
+      return areaModel(model, reveal);
     case "place-value":
-      return placeValue(model);
+      return placeValue(model, reveal);
     case "coordinate-grid":
-      return coordinateGrid(model);
+      return coordinateGrid(model, reveal);
     case "angle":
-      return angle(model);
+      return angle(model, reveal);
     case "unit-cubes":
-      return unitCubes(model);
+      return unitCubes(model, reveal);
     case "clock":
       return clock(model);
     case "polygon":
-      return polygon(model);
+      return polygon(model, reveal);
     case "symmetry":
-      return symmetry(model);
+      return symmetry(model, reveal);
     case "bar-graph":
       return barGraph(model);
     case "number-chips":
@@ -212,7 +218,7 @@ function fractionBar(model: Extract<VisualModel, { kind: "fraction-bar" }>): {
         className="fill-ink-soft text-[12px] font-semibold"
         style={stagger(step)}
       >
-        {fraction.numerator}/{fraction.denominator}
+        {fraction.numerator === 0 ? `?/${fraction.denominator}` : `${fraction.numerator}/${fraction.denominator}`}
       </text>,
     );
     y = labelY + groupGap;
@@ -265,7 +271,7 @@ function axisTicks(min: number, max: number, x0: number, x1: number): number[] {
   return kept.slice(-14);
 }
 
-function numberLine(model: Extract<VisualModel, { kind: "number-line" }>): {
+function numberLine(model: Extract<VisualModel, { kind: "number-line" }>, reveal: boolean): {
   height: number;
   body: ReactNode;
 } {
@@ -306,9 +312,12 @@ function numberLine(model: Extract<VisualModel, { kind: "number-line" }>): {
           return (
             <g key={`t-${tick}`} className="mt-stagger-item" style={stagger(step++)}>
               <line x1={x} y1={y - 5} x2={x} y2={y + 5} className="stroke-ink" strokeWidth={1.5} />
-              <text x={x} y={y + 20} textAnchor={anchor(x)} className="fill-muted text-[10px]">
-                {tickLabel(tick)}
-              </text>
+              {/* Practice shows a bare ruler with only the given points labelled. */}
+              {reveal && (
+                <text x={x} y={y + 20} textAnchor={anchor(x)} className="fill-muted text-[10px]">
+                  {tickLabel(tick)}
+                </text>
+              )}
             </g>
           );
         })}
@@ -348,7 +357,7 @@ function numberLine(model: Extract<VisualModel, { kind: "number-line" }>): {
  * area-model
  * ------------------------------------------------------------------ */
 
-function areaModel(model: Extract<VisualModel, { kind: "area-model" }>): {
+function areaModel(model: Extract<VisualModel, { kind: "area-model" }>, reveal: boolean): {
   height: number;
   body: ReactNode;
 } {
@@ -413,7 +422,9 @@ function areaModel(model: Extract<VisualModel, { kind: "area-model" }>): {
           className="fill-ink text-[14px] font-semibold"
           style={stagger(model.rows)}
         >
-          {model.rows} × {model.cols} = {model.rows * model.cols}
+          {reveal
+            ? `${model.rows} × ${model.cols} = ${model.rows * model.cols}`
+            : `${model.rows} rows × ${model.cols} columns`}
         </text>
         {caption.length > 0 && <Caption lines={caption} y={y0 + gridH + 40} />}
       </g>
@@ -425,7 +436,12 @@ function areaModel(model: Extract<VisualModel, { kind: "area-model" }>): {
  * place-value
  * ------------------------------------------------------------------ */
 
-const SHORT_INT_PLACES = ["1s", "10s", "100s", "1,000s", "10,000s", "100,000s"];
+/**
+ * Compact column headings. Names, never numerals: a header like "1,000s" would
+ * print the place value of a column, which is the answer for the expanded-form
+ * and place-value skills in practice mode.
+ */
+const SHORT_INT_PLACES = ["ones", "tens", "hundreds", "thousands", "ten-thou", "hun-thou"];
 const SHORT_DEC_PLACES = ["tenths", "hundredths", "thousandths"];
 
 function shortPlaceName(digits: string, index: number): string {
@@ -450,7 +466,7 @@ function digitWorth(digits: string, index: number): string | null {
   return `${digit} × 1${"0".repeat(Math.max(exponent, 0))} = ${(digit * 10 ** exponent).toLocaleString("en-US")}`;
 }
 
-function placeValue(model: Extract<VisualModel, { kind: "place-value" }>): {
+function placeValue(model: Extract<VisualModel, { kind: "place-value" }>, reveal: boolean): {
   height: number;
   body: ReactNode;
 } {
@@ -460,7 +476,7 @@ function placeValue(model: Extract<VisualModel, { kind: "place-value" }>): {
   const x0 = (WIDTH - totalW) / 2;
   const y0 = 34;
   const worth =
-    model.highlight === undefined ? null : digitWorth(model.digits, model.highlight);
+    reveal && model.highlight !== undefined ? digitWorth(model.digits, model.highlight) : null;
 
   return {
     height: worth ? 136 : 116,
@@ -479,7 +495,9 @@ function placeValue(model: Extract<VisualModel, { kind: "place-value" }>): {
                 x={x + cellW / 2}
                 y={26}
                 textAnchor="middle"
-                className={highlighted ? "fill-sunnyink text-[11px] font-semibold" : "fill-muted text-[11px]"}
+                className={`${highlighted ? "fill-sunnyink font-semibold" : "fill-muted"} ${
+                  cellW >= 50 ? "text-[11px]" : "text-[9px]"
+                }`}
               >
                 {char === "." ? "" : shortPlaceName(model.digits, i)}
               </text>
@@ -523,7 +541,7 @@ function placeValue(model: Extract<VisualModel, { kind: "place-value" }>): {
  * coordinate-grid
  * ------------------------------------------------------------------ */
 
-function coordinateGrid(model: Extract<VisualModel, { kind: "coordinate-grid" }>): {
+function coordinateGrid(model: Extract<VisualModel, { kind: "coordinate-grid" }>, reveal: boolean): {
   height: number;
   body: ReactNode;
 } {
@@ -542,15 +560,17 @@ function coordinateGrid(model: Extract<VisualModel, { kind: "coordinate-grid" }>
     );
   }
   const tickLabels: ReactNode[] = [];
-  for (let i = 1; i <= max; i++) {
-    tickLabels.push(
-      <text key={`xl-${i}`} x={px(i)} y={bottom + 14} textAnchor="middle" className="fill-muted text-[9px]">
-        {i}
-      </text>,
-      <text key={`yl-${i}`} x={x0 - 7} y={py(i) + 3} textAnchor="end" className="fill-muted text-[9px]">
-        {i}
-      </text>,
-    );
+  if (reveal) {
+    for (let i = 1; i <= max; i++) {
+      tickLabels.push(
+        <text key={`xl-${i}`} x={px(i)} y={bottom + 14} textAnchor="middle" className="fill-muted text-[9px]">
+          {i}
+        </text>,
+        <text key={`yl-${i}`} x={x0 - 7} y={py(i) + 3} textAnchor="end" className="fill-muted text-[9px]">
+          {i}
+        </text>,
+      );
+    }
   }
   return {
     height: bottom + 34,
@@ -589,7 +609,7 @@ function coordinateGrid(model: Extract<VisualModel, { kind: "coordinate-grid" }>
  * angle
  * ------------------------------------------------------------------ */
 
-function angle(model: Extract<VisualModel, { kind: "angle" }>): { height: number; body: ReactNode } {
+function angle(model: Extract<VisualModel, { kind: "angle" }>, reveal: boolean): { height: number; body: ReactNode } {
   const degrees = Math.min(Math.max(model.degrees, 1), 179);
   const height = 232;
   const vertex = { x: 62, y: 178 };
@@ -614,7 +634,7 @@ function angle(model: Extract<VisualModel, { kind: "angle" }>): { height: number
   const arcEnd = point(degrees, radius);
   const labelAt = point(degrees / 2, radius + 30);
   const kindName = degrees === 90 ? "right" : degrees < 90 ? "acute" : "obtuse";
-  const reference = degrees === 90 ? null : point(90, Math.min(rayLength * 0.72, vertex.y - 24));
+  const reference = reveal && degrees !== 90 ? point(90, Math.min(rayLength * 0.72, vertex.y - 24)) : null;
 
   return {
     height,
@@ -679,16 +699,21 @@ function angle(model: Extract<VisualModel, { kind: "angle" }>): { height: number
         >
           {degrees}°
         </text>
-        <text x={WIDTH / 2} y={210} textAnchor="middle" className="fill-ink-soft text-[12px] font-semibold">
-          {degrees === 90
-            ? "exactly 90° — a right angle"
-            : degrees < 90
-              ? `${degrees}° is less than 90° — acute`
-              : `${degrees}° is more than 90° — obtuse`}
-        </text>
-        <text x={WIDTH / 2} y={78} textAnchor="middle" className="fill-muted text-[11px]">
-          {kindName} angle
-        </text>
+        {/* Practice names neither the type nor compares to 90° — that is the answer. */}
+        {reveal && (
+          <text x={WIDTH / 2} y={210} textAnchor="middle" className="fill-ink-soft text-[12px] font-semibold">
+            {degrees === 90
+              ? "exactly 90° — a right angle"
+              : degrees < 90
+                ? `${degrees}° is less than 90° — acute`
+                : `${degrees}° is more than 90° — obtuse`}
+          </text>
+        )}
+        {reveal && (
+          <text x={WIDTH / 2} y={78} textAnchor="middle" className="fill-muted text-[11px]">
+            {kindName} angle
+          </text>
+        )}
       </g>
     ),
   };
@@ -698,7 +723,7 @@ function angle(model: Extract<VisualModel, { kind: "angle" }>): { height: number
  * unit-cubes
  * ------------------------------------------------------------------ */
 
-function unitCubes(model: Extract<VisualModel, { kind: "unit-cubes" }>): {
+function unitCubes(model: Extract<VisualModel, { kind: "unit-cubes" }>, reveal: boolean): {
   height: number;
   body: ReactNode;
 } {
@@ -806,7 +831,9 @@ function unitCubes(model: Extract<VisualModel, { kind: "unit-cubes" }>): {
           className="fill-ink text-[14px] font-semibold"
           style={stagger(4)}
         >
-          {l} × {w} × {h} = {l * w * h} unit cubes
+          {reveal
+            ? `${l} × ${w} × ${h} = ${l * w * h} unit cubes`
+            : `a ${l} by ${w} by ${h} box of unit cubes`}
         </text>
       </g>
     ),
@@ -925,7 +952,7 @@ function irregularPoints(sides: number, cx: number, cy: number): string {
   return polygonPoints(sides, cx, cy, 74);
 }
 
-function polygon(model: Extract<VisualModel, { kind: "polygon" }>): { height: number; body: ReactNode } {
+function polygon(model: Extract<VisualModel, { kind: "polygon" }>, reveal: boolean): { height: number; body: ReactNode } {
   const sides = Math.min(Math.max(Math.round(model.sides), 3), 12);
   const cx = WIDTH / 2;
   const cy = 100;
@@ -950,18 +977,21 @@ function polygon(model: Extract<VisualModel, { kind: "polygon" }>): { height: nu
           const [x, y] = pair.split(",");
           return <circle key={`v-${i}`} cx={x} cy={y} r={3.5} className="fill-skyink" style={stagger(1)} />;
         })}
-        <text x={cx} y={cy + 4} textAnchor="middle" className="fill-ink-soft text-[12px] font-semibold">
-          {sides} sides
-        </text>
+        {/* Practice does not numeral-count the sides; the shape is there to count. */}
+        {reveal && (
+          <text x={cx} y={cy + 4} textAnchor="middle" className="fill-ink-soft text-[12px] font-semibold">
+            {sides} sides
+          </text>
+        )}
         {caption.length > 0 && <Caption lines={caption} y={captionY} />}
       </g>
     ),
   };
 }
 
-function symmetry(model: Extract<VisualModel, { kind: "symmetry" }>): { height: number; body: ReactNode } {
+function symmetry(model: Extract<VisualModel, { kind: "symmetry" }>, reveal: boolean): { height: number; body: ReactNode } {
   const sides = Math.min(Math.max(Math.round(model.sides), 3), 12);
-  const axes = Math.max(Math.round(model.axes), 0);
+  const axes = reveal ? Math.max(Math.round(model.axes), 0) : 0;
   const cx = WIDTH / 2;
   const cy = 100;
   const r = 74;
@@ -996,9 +1026,12 @@ function symmetry(model: Extract<VisualModel, { kind: "symmetry" }>): { height: 
           style={stagger(0)}
         />
         {lines}
-        <text x={cx} y={cy + r + 36} textAnchor="middle" className="fill-ink-soft text-[12px] font-semibold">
-          {sides}-sided shape · {axes} {axes === 1 ? "line" : "lines"} of symmetry
-        </text>
+        {/* Practice shows the shape alone; the axis count is the answer. */}
+        {reveal && (
+          <text x={cx} y={cy + r + 36} textAnchor="middle" className="fill-ink-soft text-[12px] font-semibold">
+            {sides}-sided shape · {axes} {axes === 1 ? "line" : "lines"} of symmetry
+          </text>
+        )}
       </g>
     ),
   };

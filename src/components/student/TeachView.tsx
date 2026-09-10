@@ -108,8 +108,9 @@ export function TeachView({
           </div>
           {step.visual ? (
             /* Its own entrance: a bare fade (no transform, no pop), so the
-               picture can never shift the layout around it. */
-            <VisualModelView model={step.visual} className="mt-2 mt-stagger-fade" />
+               picture can never shift the layout around it. `reveal` because
+               every step is a worked example — the drawn result is the point. */
+            <VisualModelView model={step.visual} reveal className="mt-2 mt-stagger-fade" />
           ) : null}
         </section>
 

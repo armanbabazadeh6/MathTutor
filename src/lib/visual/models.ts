@@ -2,10 +2,15 @@
  * Drawable visual models for generated problems.
  *
  * Pure data + prompt parsing: no React, no DOM, no imports — every generator
- * prompt is read back with a pattern matched to the text the generator in
- * `src/lib/math/generators.ts` actually produces. `buildVisual` never throws
- * and never returns a model containing NaN or Infinity; anything it cannot
- * picture safely returns `null`.
+ * prompt is read back with a pattern matched to the text the generators in
+ * `src/lib/math/generators.ts` and `src/lib/math/generators-extra.ts` actually
+ * produce. `buildVisual` never throws and never returns a model containing NaN
+ * or Infinity; anything it cannot picture safely returns `null`.
+ *
+ * Practice safety: unless `reveal` is set, a model carries only the numbers the
+ * prompt already states (plus structural counts such as grid dimensions and
+ * axis bounds) and never the answer or a result of the operation. Teach and
+ * results screens pass `{ reveal: true }` to show the worked outcome.
  */
 
 export interface VisualFraction {
@@ -16,6 +21,14 @@ export interface VisualFraction {
 export interface VisualPoint {
   x: number;
   y: number;
+}
+
+export interface VisualOptions {
+  /**
+   * Teach/results mode: include the worked result (the answer) in the picture.
+   * Practice must leave this false, so the visual is a scaffold, not an answer key.
+   */
+  reveal?: boolean;
 }
 
 export type VisualModel =
@@ -68,6 +81,12 @@ function finite(value: unknown): boolean {
   return true;
 }
 
+/** Next round bound strictly above `n` — axis room that can never be the answer. */
+function boundAbove(n: number): number {
+  const magnitude = 10 ** Math.max(String(Math.ceil(Math.abs(n) + 1)).length - 1, 0);
+  return Math.ceil((n + 1) / magnitude) * magnitude;
+}
+
 const PLACE_EXP: Record<string, number> = {
   ones: 0,
   tens: 1,
@@ -81,6 +100,21 @@ const ROUND_FACTOR: Record<string, number> = { ten: 10, hundred: 100, thousand: 
 
 const INT_PLACES = ["ones", "tens", "hundreds", "thousands", "ten-thousands", "hundred-thousands"];
 const DEC_PLACES = ["tenths", "hundredths", "thousandths"];
+const NUMBER_WORDS = [
+  "zero",
+  "one",
+  "two",
+  "three",
+  "four",
+  "five",
+  "six",
+  "seven",
+  "eight",
+  "nine",
+  "ten",
+  "eleven",
+  "twelve",
+];
 
 /** Full place name of the character at `index` of a written number, if known. */
 function placeNameAt(digits: string, index: number): string | null {
@@ -140,52 +174,82 @@ const DEC_POW10 = /What is (\d+(?:\.\d+)?) × (\d+)\?/;
  * the prompt. Insertion order matters: the most specific phrase must be tested
  * first ("rectangle that is not a square" contains "square" too).
  */
-const SYMMETRY_SIDES: Record<string, number> = {
-  hexagon: 6,
-  pentagon: 5,
-  "equilateral triangle": 3,
-  "isosceles triangle": 3,
-  "scalene triangle": 3,
-  triangle: 3,
-  kite: 4,
-  rhombus: 4,
-  rectangle: 4,
-  square: 4,
+const SYMMETRY_SHAPES: Record<string, { sides: number; equalSides: boolean }> = {
+  hexagon: { sides: 6, equalSides: true },
+  pentagon: { sides: 5, equalSides: true },
+  "equilateral triangle": { sides: 3, equalSides: true },
+  "isosceles triangle": { sides: 3, equalSides: false },
+  "scalene triangle": { sides: 3, equalSides: false },
+  triangle: { sides: 3, equalSides: false },
+  kite: { sides: 4, equalSides: false },
+  rhombus: { sides: 4, equalSides: true },
+  rectangle: { sides: 4, equalSides: false },
+  square: { sides: 4, equalSides: true },
 };
 
 /**
  * Quadrilateral classifications the generator asks for, keyed by the answer it
- * expects. `equalSides` drives the drawing; the label carries the definition the
- * frozen `polygon` kind cannot express visually.
+ * expects. Practice shows only the properties from the prompt; reveal names the
+ * shape. The frozen `polygon` kind cannot draw a leaning quadrilateral, so the
+ * label carries the definition.
  */
-const QUADRILATERALS: Record<string, { equalSides: boolean; label: string }> = {
-  square: { equalSides: true, label: "a square: 4 right angles and 4 equal sides" },
-  rectangle: { equalSides: false, label: "a rectangle: 4 right angles with opposite sides equal" },
-  rhombus: { equalSides: true, label: "a rhombus: 4 equal sides with parallel opposite sides" },
-  parallelogram: { equalSides: false, label: "a parallelogram: both pairs of opposite sides parallel and equal" },
-  trapezoid: { equalSides: false, label: "a trapezoid: exactly one pair of parallel sides" },
+const QUADRILATERALS: Record<string, { equalSides: boolean; properties: string; name: string }> = {
+  square: {
+    equalSides: true,
+    properties: "four right angles and four equal sides",
+    name: "a square: four right angles and four equal sides",
+  },
+  rectangle: {
+    equalSides: false,
+    properties: "four right angles with only the opposite sides equal",
+    name: "a rectangle: four right angles with opposite sides equal",
+  },
+  rhombus: {
+    equalSides: true,
+    properties: "four equal sides, opposite sides parallel, with no right angles",
+    name: "a rhombus: four equal sides with parallel opposite sides",
+  },
+  parallelogram: {
+    equalSides: false,
+    properties: "both pairs of opposite sides parallel and equal, with no right angles",
+    name: "a parallelogram: both pairs of opposite sides parallel and equal",
+  },
+  trapezoid: {
+    equalSides: false,
+    properties: "exactly one pair of parallel sides",
+    name: "a trapezoid: exactly one pair of parallel sides",
+  },
 };
 
 /** Side facts behind the quadrilateral hierarchy questions. */
 const QUADRILATERAL_PROPERTIES: Record<string, { equalSides: boolean; sides: string }> = {
-  square: { equalSides: true, sides: "4 right angles and 4 equal sides" },
-  rectangle: { equalSides: false, sides: "4 right angles and opposite sides equal" },
-  rhombus: { equalSides: true, sides: "4 equal sides and parallel opposite sides" },
+  square: { equalSides: true, sides: "four right angles and four equal sides" },
+  rectangle: { equalSides: false, sides: "four right angles and opposite sides equal" },
+  rhombus: { equalSides: true, sides: "four equal sides and parallel opposite sides" },
   parallelogram: { equalSides: false, sides: "two pairs of parallel sides" },
   trapezoid: { equalSides: false, sides: "exactly one pair of parallel sides" },
 };
+
+/* ------------------------------------------------------------------ *
+ * buildVisual
+ * ------------------------------------------------------------------ */
 
 /**
  * Best-effort model for a generated problem, or null when a picture adds
  * nothing. Deterministic: the same skill id + prompt text always yields the
  * same model (or the same null).
+ *
+ * Without `reveal` the model is practice-safe: it shows what the prompt states
+ * plus structural counts, never the answer or a computed result.
  */
 export function buildVisual(
   skillId: string,
   problem: { text: string; answer: string },
+  options: VisualOptions = {},
 ): VisualModel | null {
   const text = typeof problem?.text === "string" ? problem.text : "";
   const answer = typeof problem?.answer === "string" ? problem.answer : "";
+  const reveal = options.reveal === true;
 
   switch (skillId) {
     /* ---------- whole-number operations ---------- */
@@ -194,13 +258,11 @@ export function buildVisual(
       if (!m) return null;
       const a = num(m[1]);
       const b = num(m[2]);
-      return valid({
-        kind: "number-line",
-        min: 0,
-        max: a + b,
-        marks: [a, a + b],
-        label: `${fmtNum(a)} + ${fmtNum(b)}`,
-      });
+      const label = `${fmtNum(a)} + ${fmtNum(b)}`;
+      if (!reveal) {
+        return valid({ kind: "number-line", min: 0, max: boundAbove(a + b), marks: [a], label });
+      }
+      return valid({ kind: "number-line", min: 0, max: a + b, marks: [a, a + b], label });
     }
 
     case "bt-sub-multidigit": {
@@ -208,7 +270,9 @@ export function buildVisual(
       if (!m) return null;
       const a = num(m[1]);
       const b = num(m[2]);
-      return valid({ kind: "number-line", min: 0, max: a, marks: [a - b, a], label: `${fmtNum(a)} − ${fmtNum(b)}` });
+      const label = `${fmtNum(a)} − ${fmtNum(b)}`;
+      if (!reveal) return valid({ kind: "number-line", min: 0, max: a, marks: [a], label });
+      return valid({ kind: "number-line", min: 0, max: a, marks: [a - b, a], label });
     }
 
     case "oa-mult-1digit": {
@@ -216,7 +280,7 @@ export function buildVisual(
       if (!m) return null;
       const a = num(m[1]);
       const b = num(m[2]);
-      return valid({ kind: "area-model", rows: a, cols: b, label: `${a} × ${b}` });
+      return valid({ kind: "area-model", rows: a, cols: b, label: `${a} rows of ${b}` });
     }
 
     case "oa-mult-digit-1digit": {
@@ -224,6 +288,7 @@ export function buildVisual(
       if (!m) return null;
       const a = num(m[1]);
       const b = num(m[2]);
+      if (!reveal) return valid({ kind: "place-value", digits: String(a), highlight: 0 });
       const parts = placeParts(a, b);
       return valid({
         kind: "bar-graph",
@@ -232,12 +297,30 @@ export function buildVisual(
       });
     }
 
+    case "oa-div-facts": {
+      const m = /What is ([\d,]+) ÷ (\d+)\?/.exec(text);
+      if (!m) return null;
+      const n = num(m[1]);
+      const divisor = num(m[2]);
+      const quotient = num(answer);
+      if (!reveal) {
+        return valid({ kind: "number-line", min: 0, max: n, marks: [n], label: `${fmtNum(n)} ÷ ${divisor}` });
+      }
+      if (!Number.isInteger(quotient) || quotient <= 0) {
+        return valid({ kind: "number-line", min: 0, max: n, marks: [n], label: `${fmtNum(n)} ÷ ${divisor}` });
+      }
+      return valid({ kind: "area-model", rows: divisor, cols: quotient, label: `${fmtNum(n)} ÷ ${divisor}` });
+    }
+
     case "oa-div-1digit-divisor": {
       const m = /Divide ([\d,]+) by (\d+)/.exec(text);
       const parsed = /^(\d+) R (\d+)$/.exec(answer.trim());
-      if (!m || !parsed) return null;
+      if (!m) return null;
       const n = num(m[1]);
       const d = num(m[2]);
+      if (!reveal || !parsed) {
+        return valid({ kind: "number-line", min: 0, max: n, marks: [n], label: `${fmtNum(n)} ÷ ${d}` });
+      }
       const quotient = num(parsed[1]);
       const remainder = num(parsed[2]);
       return valid({
@@ -251,11 +334,13 @@ export function buildVisual(
       const paren = /What is \((\d+) \+ (\d+)\) × (\d+)\?/.exec(text);
       if (paren) {
         const [a, b, c] = [num(paren[1]), num(paren[2]), num(paren[3])];
+        if (!reveal) return valid({ kind: "number-chips", values: [a, b, c] });
         return valid({ kind: "number-chips", values: [a, b, c, a + b, (a + b) * c] });
       }
       const plain = /What is (\d+) \+ (\d+) × (\d+)\?/.exec(text);
       if (!plain) return null;
       const [a, b, c] = [num(plain[1]), num(plain[2]), num(plain[3])];
+      if (!reveal) return valid({ kind: "number-chips", values: [a, b, c] });
       return valid({ kind: "number-chips", values: [a, b, c, b * c, a + b * c] });
     }
 
@@ -277,13 +362,20 @@ export function buildVisual(
       if (!m) return null;
       const n = num(m[1]);
       const factor = ROUND_FACTOR[m[2]];
+      if (!reveal) {
+        // Show the number's columns with the deciding digit called out — enough
+        // to round, without naming the rounded value.
+        const digits = String(n);
+        const deciding = Math.round(Math.log10(factor)) - 1;
+        return valid({ kind: "place-value", digits, highlight: digits.length - 1 - deciding });
+      }
       const lower = Math.floor(n / factor) * factor;
       const upper = lower + factor;
       return valid({
         kind: "number-line",
         min: Math.min(lower, n),
         max: Math.max(upper, n),
-        marks: Array.from(new Set([lower, n, upper])).sort((a, b) => a - b),
+        marks: Array.from(new Set([lower, n, upper])).sort((x, y) => x - y),
         label: `nearest ${m[2]}`,
       });
     }
@@ -311,6 +403,15 @@ export function buildVisual(
       const target = num(m[3]);
       if (denominator === 0 || target % denominator !== 0) return null;
       const scale = target / denominator;
+      if (!reveal) {
+        // The second bar is the empty target: the missing numerator is the answer.
+        return valid({
+          kind: "fraction-bar",
+          numerator,
+          denominator,
+          compare: { numerator: 0, denominator: target },
+        });
+      }
       return valid({
         kind: "fraction-bar",
         numerator,
@@ -324,6 +425,9 @@ export function buildVisual(
       if (!m) return null;
       const [a, d1, b, d2] = [num(m[1]), num(m[2]), num(m[3]), num(m[4])];
       if (d1 !== d2) return null;
+      if (!reveal) {
+        return valid({ kind: "fraction-bar", numerator: a, denominator: d1, compare: { numerator: b, denominator: d1 } });
+      }
       return valid({ kind: "fraction-bar", numerator: a + b, denominator: d1, compare: { numerator: a, denominator: d1 } });
     }
 
@@ -332,6 +436,9 @@ export function buildVisual(
       if (!m) return null;
       const [a, d1, b, d2] = [num(m[1]), num(m[2]), num(m[3]), num(m[4])];
       if (d1 !== d2) return null;
+      if (!reveal) {
+        return valid({ kind: "fraction-bar", numerator: a, denominator: d1, compare: { numerator: b, denominator: d1 } });
+      }
       return valid({ kind: "fraction-bar", numerator: a - b, denominator: d1, compare: { numerator: a, denominator: d1 } });
     }
 
@@ -339,11 +446,13 @@ export function buildVisual(
       const m = ADD_UNLIKE.exec(text);
       if (!m) return null;
       const [a, d1, b, d2] = [num(m[1]), num(m[2]), num(m[3]), num(m[4])];
-      const denominator = d1 * d2;
+      if (!reveal) {
+        return valid({ kind: "fraction-bar", numerator: a, denominator: d1, compare: { numerator: b, denominator: d2 } });
+      }
       return valid({
         kind: "fraction-bar",
         numerator: a * d2 + b * d1,
-        denominator,
+        denominator: d1 * d2,
         compare: { numerator: a, denominator: d1 },
       });
     }
@@ -352,6 +461,9 @@ export function buildVisual(
       const m = SUB_UNLIKE.exec(text);
       if (!m) return null;
       const [a, d1, b, d2] = [num(m[1]), num(m[2]), num(m[3]), num(m[4])];
+      if (!reveal) {
+        return valid({ kind: "fraction-bar", numerator: a, denominator: d1, compare: { numerator: b, denominator: d2 } });
+      }
       const numerator = a * d2 - b * d1;
       if (numerator <= 0) return null;
       return valid({
@@ -366,6 +478,7 @@ export function buildVisual(
       const m = MULT_WHOLE.exec(text);
       if (!m) return null;
       const [a, d, whole] = [num(m[1]), num(m[2]), num(m[3])];
+      if (!reveal) return valid({ kind: "fraction-bar", numerator: a, denominator: d });
       return valid({
         kind: "fraction-bar",
         numerator: a * whole,
@@ -393,13 +506,9 @@ export function buildVisual(
       const parts = num(m[2]);
       const tick = num(m[3]);
       if (parts <= 0 || tick > wholes * parts) return null;
-      return valid({
-        kind: "number-line",
-        min: 0,
-        max: wholes,
-        marks: [tick / parts],
-        label: `each whole cut into ${parts} equal parts; the dot is ${tick} jumps from 0`,
-      });
+      const label = `each whole cut into ${parts} equal parts; the dot sits at tick ${tick}`;
+      if (!reveal) return valid({ kind: "number-line", min: 0, max: wholes, marks: [], label });
+      return valid({ kind: "number-line", min: 0, max: wholes, marks: [tick / parts], label });
     }
 
     case "fr-compare-decimals": {
@@ -420,7 +529,7 @@ export function buildVisual(
       const m = DEC_ADD_SUB.exec(text);
       if (!m) return null;
       const result = Number(answer.trim());
-      if (!Number.isFinite(result)) return null;
+      if (!reveal || !Number.isFinite(result)) return valid({ kind: "number-chips", values: [num(m[1]), num(m[3])] });
       return valid({ kind: "number-chips", values: [num(m[1]), num(m[3]), result] });
     }
 
@@ -428,7 +537,7 @@ export function buildVisual(
       const m = DEC_POW10.exec(text);
       if (!m) return null;
       const result = Number(answer.trim());
-      if (!Number.isFinite(result)) return null;
+      if (!reveal || !Number.isFinite(result)) return valid({ kind: "number-chips", values: [num(m[1]), num(m[2])] });
       return valid({ kind: "number-chips", values: [num(m[1]), num(m[2]), result] });
     }
 
@@ -514,16 +623,27 @@ export function buildVisual(
     case "geo-symmetry": {
       const m = /How many lines of symmetry does (?:a|an) (.+?) have\?/.exec(text);
       if (!m) return null;
-      let sides: number | null = null;
-      for (const [shape, count] of Object.entries(SYMMETRY_SIDES)) {
-        if (m[1].includes(shape)) {
-          sides = count;
+      let shape: { sides: number; equalSides: boolean } | null = null;
+      let phrase = "";
+      for (const [name, info] of Object.entries(SYMMETRY_SHAPES)) {
+        if (m[1].includes(name)) {
+          shape = info;
+          phrase = name;
           break;
         }
       }
       const axes = Number(answer.trim());
-      if (sides === null || !Number.isInteger(axes) || axes < 0) return null;
-      return valid({ kind: "symmetry", sides, axes });
+      if (!shape || !Number.isInteger(axes) || axes < 0) return null;
+      if (!reveal) {
+        // Draw the shape only: the number of folds is the answer.
+        return valid({
+          kind: "polygon",
+          sides: shape.sides,
+          equalSides: shape.equalSides,
+          label: `${m[1]} — count the folds that map it onto itself`,
+        });
+      }
+      return valid({ kind: "symmetry", sides: shape.sides, axes });
     }
 
     case "geo-coord-plane": {
@@ -533,31 +653,16 @@ export function buildVisual(
       const y = num(m[2]);
       return valid({
         kind: "coordinate-grid",
-        points: [{ x, y }],
+        points: reveal ? [{ x, y }] : [],
         max: Math.max(x, y, 5) + 1,
       });
     }
 
     case "oa-multistep-word": {
-      return valid(wordProblemVisual(text));
+      return valid(wordProblemVisual(text, reveal));
     }
 
     /* ---------- extra operations (sibling generator set) ---------- */
-    case "oa-div-facts": {
-      const m = /What is ([\d,]+) ÷ (\d+)\?/.exec(text);
-      if (!m) return null;
-      const n = num(m[1]);
-      const divisor = num(m[2]);
-      const quotient = num(answer);
-      if (!Number.isInteger(quotient) || quotient <= 0) return null;
-      return valid({
-        kind: "area-model",
-        rows: divisor,
-        cols: quotient,
-        label: `${n} ÷ ${divisor}`,
-      });
-    }
-
     case "oa-mult-2digit-2digit": {
       const m = /What is ([\d,]+) × (\d+)\?/.exec(text);
       if (!m) return null;
@@ -565,6 +670,11 @@ export function buildVisual(
       const b = num(m[2]);
       const tens = Math.floor(b / 10) * 10;
       const ones = b % 10;
+      if (!reveal) {
+        // Break the two-digit factor by place value — the partial products
+        // themselves are the result, so practice stops here.
+        return valid({ kind: "place-value", digits: String(b), highlight: 0 });
+      }
       if (ones === 0) return valid({ kind: "bar-graph", values: [a * b], label: `${fmtNum(a)} × ${b}` });
       return valid({
         kind: "bar-graph",
@@ -579,13 +689,17 @@ export function buildVisual(
       const n = num(m[1]);
       const known = num(m[2]);
       const missing = num(answer);
+      if (!reveal) {
+        return valid({
+          kind: "number-line",
+          min: 0,
+          max: n,
+          marks: [n],
+          label: `${n} = ${known} × ?`,
+        });
+      }
       if (!Number.isInteger(missing) || missing <= 0) return null;
-      return valid({
-        kind: "area-model",
-        rows: known,
-        cols: missing,
-        label: `${n} = ${known} × ${missing}`,
-      });
+      return valid({ kind: "area-model", rows: known, cols: missing, label: `${n} = ${known} × ${missing}` });
     }
 
     case "oa-multiples-prime": {
@@ -593,6 +707,15 @@ export function buildVisual(
       if (!m) return null;
       const n = num(m[1]);
       if (!Number.isInteger(n) || n < 2) return null;
+      if (!reveal) {
+        return valid({
+          kind: "number-line",
+          min: 0,
+          max: n,
+          marks: [n],
+          label: `${n} — is it prime or composite?`,
+        });
+      }
       const proper: number[] = [];
       for (let factor = 2; factor * factor <= n; factor++) {
         if (n % factor !== 0) continue;
@@ -610,9 +733,16 @@ export function buildVisual(
       if (!m) return null;
       const terms = m[1].split(",").map((part) => Number(part.trim()));
       const next = num(answer);
-      if (terms.length < 2 || terms.some((term) => !Number.isFinite(term)) || !Number.isFinite(next)) {
-        return null;
+      if (terms.length < 2 || terms.some((term) => !Number.isFinite(term))) return null;
+      if (!reveal) {
+        return valid({
+          kind: "number-line",
+          min: Math.min(...terms),
+          max: Math.max(...terms),
+          marks: terms,
+        });
       }
+      if (!Number.isFinite(next)) return null;
       return valid({
         kind: "number-line",
         min: Math.min(...terms),
@@ -631,6 +761,15 @@ export function buildVisual(
       if (group <= 0) return null;
       const quotient = Math.floor(total / group);
       const remainder = total % group;
+      if (!reveal) {
+        return valid({
+          kind: "number-line",
+          min: 0,
+          max: total,
+          marks: [total],
+          label: `${fmtNum(total)} put into groups of ${group}`,
+        });
+      }
       return valid({
         kind: "bar-graph",
         values: [quotient, remainder],
@@ -643,6 +782,7 @@ export function buildVisual(
       if (!m) return null;
       const [a, d, batches] = [num(m[1]), num(m[2]), num(m[3])];
       if (d <= 0) return null;
+      if (!reveal) return valid({ kind: "fraction-bar", numerator: a, denominator: d });
       return valid({
         kind: "fraction-bar",
         numerator: a * batches,
@@ -656,7 +796,8 @@ export function buildVisual(
       if (!quoted) return null;
       const operands = (quoted[1].match(/\d+/g) ?? []).map(Number);
       const value = num(answer);
-      if (operands.length === 0 || !Number.isFinite(value)) return null;
+      if (operands.length === 0) return null;
+      if (!reveal || !Number.isFinite(value)) return valid({ kind: "number-chips", values: operands });
       return valid({ kind: "number-chips", values: [...operands, value] });
     }
 
@@ -665,44 +806,39 @@ export function buildVisual(
       if (added) {
         const a = num(added[1]);
         const b = num(added[2]);
-        return valid({
-          kind: "number-line",
-          min: 0,
-          max: a + b,
-          marks: [a, a + b],
-          label: `${fmtNum(a)} + ${fmtNum(b)}`,
-        });
+        const label = `${fmtNum(a)} + ${fmtNum(b)}`;
+        if (!reveal) {
+          return valid({ kind: "number-line", min: 0, max: boundAbove(a + b), marks: [a], label });
+        }
+        return valid({ kind: "number-line", min: 0, max: a + b, marks: [a, a + b], label });
       }
       const taken = /has ([\d,]+) .+ and gives away ([\d,]+)\./.exec(text);
       if (!taken) return null;
       const a = num(taken[1]);
       const b = num(taken[2]);
-      return valid({
-        kind: "number-line",
-        min: 0,
-        max: a,
-        marks: [a - b, a],
-        label: `${fmtNum(a)} − ${fmtNum(b)}`,
-      });
+      const label = `${fmtNum(a)} − ${fmtNum(b)}`;
+      if (!reveal) return valid({ kind: "number-line", min: 0, max: a, marks: [a], label });
+      return valid({ kind: "number-line", min: 0, max: a, marks: [a - b, a], label });
     }
 
     case "bt-multiply-10s": {
       const m = /What is ([\d,]+) × (\d+)\?/.exec(text);
       if (!m) return null;
       const value = num(answer);
-      if (!Number.isFinite(value)) return null;
-      return valid({ kind: "number-chips", values: [num(m[1]), num(m[2]), value] });
+      const pair = [num(m[1]), num(m[2])];
+      if (!reveal || !Number.isFinite(value)) return valid({ kind: "number-chips", values: pair });
+      return valid({ kind: "number-chips", values: [...pair, value] });
     }
 
     case "bt-estimate": {
       const both = /Estimate ([\d,]+) ([+×]) ([\d,]+) by rounding each number to the nearest (ten|hundred|thousand)\./.exec(text);
       const mixed = /Estimate ([\d,]+) × ([\d,]+) by rounding ([\d,]+) to the nearest (ten|hundred|thousand) and ([\d,]+) to the nearest (ten|hundred|thousand)\./.exec(text);
       const estimate = num(answer);
-      if (!Number.isFinite(estimate)) return null;
       if (both) {
-        const place = ROUND_FACTOR[both[4]];
         const a = num(both[1]);
         const b = num(both[3]);
+        if (!reveal) return valid({ kind: "number-chips", values: [a, b] });
+        const place = ROUND_FACTOR[both[4]];
         return valid({
           kind: "number-chips",
           values: [a, Math.round(a / place) * place, b, Math.round(b / place) * place, estimate],
@@ -711,6 +847,7 @@ export function buildVisual(
       if (!mixed) return null;
       const a = num(mixed[1]);
       const b = num(mixed[2]);
+      if (!reveal) return valid({ kind: "number-chips", values: [a, b] });
       const placeA = ROUND_FACTOR[mixed[4]];
       const placeB = ROUND_FACTOR[mixed[6]];
       return valid({
@@ -724,21 +861,28 @@ export function buildVisual(
       if (!m) return null;
       const a = num(m[1]);
       const b = num(m[2]);
-      const marks = Array.from(new Set([a, b])).sort((x, y) => x - y);
       return valid({
         kind: "number-line",
         min: 0,
         max: Math.max(a, b),
-        marks,
+        marks: Array.from(new Set([a, b])).sort((x, y) => x - y),
         label: `compare ${fmtNum(a)} with ${fmtNum(b)}`,
       });
     }
 
     case "bt-expanded-form": {
       const write = /Write ([\d,]+) in expanded form/.exec(text);
+      if (write) {
+        const digits = write[1].replace(/,/g, "");
+        if (!/^\d+$/.test(digits)) return null;
+        return valid({ kind: "place-value", digits, highlight: 0 });
+      }
       const rebuild = /What number is ([\d,]+(?: \+ [\d,]+)+)\?/.exec(text);
-      const digits = (write ? write[1] : rebuild ? String(num(answer)) : "").replace(/,/g, "");
-      if (digits.length === 0 || !/^\d+$/.test(digits)) return null;
+      if (!rebuild) return null;
+      const parts = rebuild[1].split(" + ").map(num);
+      if (!reveal) return valid({ kind: "number-chips", values: parts });
+      const digits = String(num(answer));
+      if (!/^\d+$/.test(digits)) return null;
       return valid({ kind: "place-value", digits, highlight: 0 });
     }
 
@@ -746,6 +890,9 @@ export function buildVisual(
       const m = ADD_UNLIKE.exec(text);
       if (!m) return null;
       const [a, d1, b, d2] = [num(m[1]), num(m[2]), num(m[3]), num(m[4])];
+      if (!reveal) {
+        return valid({ kind: "fraction-bar", numerator: a, denominator: d1, compare: { numerator: b, denominator: d2 } });
+      }
       if (d1 <= 0 || d2 % d1 !== 0) return null;
       return valid({
         kind: "fraction-bar",
@@ -759,6 +906,7 @@ export function buildVisual(
       const m = MULT_WHOLE.exec(text);
       if (!m) return null;
       const [a, d, whole] = [num(m[1]), num(m[2]), num(m[3])];
+      if (!reveal) return valid({ kind: "fraction-bar", numerator: a, denominator: d });
       return valid({
         kind: "fraction-bar",
         numerator: a * whole,
@@ -772,7 +920,11 @@ export function buildVisual(
       if (pairs.length < 2) return null;
       const [a, d, b, d2] = [num(pairs[0][1]), num(pairs[0][2]), num(pairs[1][1]), num(pairs[1][2])];
       if (d !== d2) return null;
-      const numerator = /cut off|eaten/.test(text) ? a - b : a + b;
+      const subtract = /cut off|eaten/.test(text);
+      if (!reveal) {
+        return valid({ kind: "fraction-bar", numerator: a, denominator: d, compare: { numerator: b, denominator: d } });
+      }
+      const numerator = subtract ? a - b : a + b;
       if (numerator <= 0) return null;
       return valid({ kind: "fraction-bar", numerator, denominator: d, compare: { numerator: a, denominator: d } });
     }
@@ -780,13 +932,23 @@ export function buildVisual(
     case "md-length-convert": {
       const m = /How many ([\w\s]+?) are in ([\d,]+) (\w+)\?/.exec(text);
       if (!m) return null;
+      const to = m[1].trim();
+      const from = m[3];
+      const amount = num(m[2]);
       const converted = num(answer);
       if (!Number.isFinite(converted)) return null;
-      const to = m[1].trim();
+      if (!reveal) {
+        return valid({
+          kind: "bar-graph",
+          values: [amount],
+          label: `${fmtNum(amount)} ${from} = ? ${to}`,
+          unit: from,
+        });
+      }
       return valid({
         kind: "bar-graph",
         values: [converted],
-        label: `${fmtNum(num(m[2]))} ${m[3]} in ${to}`,
+        label: `${fmtNum(amount)} ${from} in ${to}`,
         unit: to,
       });
     }
@@ -794,25 +956,43 @@ export function buildVisual(
     case "md-mass-capacity": {
       const combined = /^([\d,]+) (\w+) and ([\d,]+) (\w+) is how many ([\w\s]+?) in all\?/.exec(text);
       if (combined) {
-        const converted = num(answer);
-        if (!Number.isFinite(converted)) return null;
+        const [amount, from, extra, extraUnit] = [num(combined[1]), combined[2], num(combined[3]), combined[4]];
         const to = combined[5].trim();
+        const converted = num(answer);
+        if (!reveal || !Number.isFinite(converted)) {
+          return valid({
+            kind: "bar-graph",
+            values: [amount, extra],
+            label: `${fmtNum(amount)} ${from} and ${fmtNum(extra)} ${extraUnit} = ? ${to}`,
+            unit: to,
+          });
+        }
         return valid({
           kind: "bar-graph",
           values: [converted],
-          label: `${fmtNum(num(combined[1]))} ${combined[2]} plus ${fmtNum(num(combined[3]))} ${combined[4]}, in ${to}`,
+          label: `${fmtNum(amount)} ${from} plus ${fmtNum(extra)} ${extraUnit}, in ${to}`,
           unit: to,
         });
       }
       const m = /How many ([\w\s]+?) are in ([\d,]+) (\w+)\?/.exec(text);
       if (!m) return null;
+      const to = m[1].trim();
+      const from = m[3];
+      const amount = num(m[2]);
       const converted = num(answer);
       if (!Number.isFinite(converted)) return null;
-      const to = m[1].trim();
+      if (!reveal) {
+        return valid({
+          kind: "bar-graph",
+          values: [amount],
+          label: `${fmtNum(amount)} ${from} = ? ${to}`,
+          unit: from,
+        });
+      }
       return valid({
         kind: "bar-graph",
         values: [converted],
-        label: `${fmtNum(num(m[2]))} ${m[3]} in ${to}`,
+        label: `${fmtNum(amount)} ${from} in ${to}`,
         unit: to,
       });
     }
@@ -828,10 +1008,26 @@ export function buildVisual(
       if (!Number.isFinite(answerValue)) return null;
       if (paid) {
         const bill = num(paid[1]);
+        if (!reveal) {
+          return valid({
+            kind: "bar-graph",
+            values: [price],
+            label: `${quantity} items at $${price.toFixed(2)}, paid with $${bill.toFixed(2)} — how much change?`,
+            unit: "dollars",
+          });
+        }
         return valid({
           kind: "bar-graph",
           values: [spent, answerValue],
           label: `${quantity} at $${price.toFixed(2)} from $${bill.toFixed(2)}`,
+          unit: "dollars",
+        });
+      }
+      if (!reveal) {
+        return valid({
+          kind: "bar-graph",
+          values: [price],
+          label: `${quantity} items at $${price.toFixed(2)} each — how much in all?`,
           unit: "dollars",
         });
       }
@@ -848,11 +1044,7 @@ export function buildVisual(
       if (!m) return null;
       const counts = Array.from(m[2].matchAll(/(\d+) at /g)).map((pair) => num(pair[1]));
       if (counts.length === 0) return null;
-      return valid({
-        kind: "bar-graph",
-        values: counts,
-        label: `${m[1]}: ${m[2]}`,
-      });
+      return valid({ kind: "bar-graph", values: counts, label: `${m[1]}: ${m[2]}` });
     }
 
     case "md-angles": {
@@ -863,11 +1055,19 @@ export function buildVisual(
         const whole = num(split[1]);
         const part = num(split[2]);
         if (whole <= 180) return valid({ kind: "angle", degrees: whole });
+        // A reflex angle cannot be drawn with two rays: show its parts instead.
+        if (!reveal || !Number.isFinite(numericAnswer)) {
+          return valid({ kind: "number-chips", values: [whole, part] });
+        }
         return valid({ kind: "number-chips", values: [whole, part, numericAnswer] });
       }
       if (!composed) return null;
       const parts = (composed[2].match(/\d+/g) ?? []).map(Number);
       if (parts.length === 0) return null;
+      // Practice shows the parts; the whole they make is the answer.
+      if (!reveal || !Number.isFinite(numericAnswer)) {
+        return valid({ kind: "number-chips", values: parts });
+      }
       if (numericAnswer <= 180) return valid({ kind: "angle", degrees: numericAnswer });
       return valid({ kind: "number-chips", values: [...parts, numericAnswer] });
     }
@@ -878,12 +1078,7 @@ export function buildVisual(
       const length = num(m[1]);
       const width = num(m[2]);
       if (/What is its area/.test(text)) {
-        return valid({
-          kind: "area-model",
-          rows: length,
-          cols: width,
-          label: `${length} m × ${width} m`,
-        });
+        return valid({ kind: "area-model", rows: length, cols: width, label: `${length} m × ${width} m` });
       }
       return valid({
         kind: "polygon",
@@ -894,24 +1089,53 @@ export function buildVisual(
     }
 
     case "geo-points-lines": {
+      // Practice labels describe the figure without naming it; reveal names it.
       if (/named location with no length, width, or size/.test(text)) {
-        return valid({ kind: "number-line", min: 0, max: 10, marks: [5], label: "a point marks one exact location" });
+        return valid({
+          kind: "number-line",
+          min: 0,
+          max: 10,
+          marks: [5],
+          label: reveal ? "a point marks one exact location" : "one exact location, with no length, width, or size",
+        });
       }
       if (/goes on forever in both directions/.test(text)) {
-        return valid({ kind: "number-line", min: 0, max: 10, marks: [], label: "a line goes on forever in both directions" });
+        return valid({
+          kind: "number-line",
+          min: 0,
+          max: 10,
+          marks: [],
+          label: reveal ? "a line goes on forever in both directions" : "goes on forever in both directions",
+        });
       }
       if (/two endpoints that you can measure/.test(text)) {
-        return valid({ kind: "number-line", min: 0, max: 10, marks: [2, 8], label: "a line segment has two endpoints" });
+        return valid({
+          kind: "number-line",
+          min: 0,
+          max: 10,
+          marks: [2, 8],
+          label: reveal ? "a line segment has two endpoints" : "stops at two endpoints you can measure",
+        });
       }
       if (/starts at one endpoint and goes on forever in one direction/.test(text)) {
-        return valid({ kind: "number-line", min: 0, max: 10, marks: [2], label: "a ray starts at one endpoint and goes one way" });
+        return valid({
+          kind: "number-line",
+          min: 0,
+          max: 10,
+          marks: [2],
+          label: reveal
+            ? "a ray starts at one endpoint and goes one way"
+            : "starts at one endpoint and goes on forever one way",
+        });
       }
       if (/never meet and stay the same distance apart/.test(text)) {
         return valid({
           kind: "polygon",
           sides: 4,
           equalSides: false,
-          label: "parallel lines never meet — the opposite sides of this rectangle are parallel",
+          label: reveal
+            ? "parallel lines never meet — the opposite sides of this rectangle are parallel"
+            : "never meet and stay the same distance apart — the opposite sides of this rectangle",
         });
       }
       if (/meet and form four right angles/.test(text)) {
@@ -919,7 +1143,7 @@ export function buildVisual(
           kind: "polygon",
           sides: 4,
           equalSides: true,
-          label: "perpendicular lines meet at a right angle",
+          label: reveal ? "perpendicular lines meet at a right angle" : "meet and form a right angle",
         });
       }
       return null;
@@ -928,7 +1152,12 @@ export function buildVisual(
     case "geo-quadrilaterals": {
       const shape = QUADRILATERALS[answer.trim().toLowerCase()];
       if (!shape) return null;
-      return valid({ kind: "polygon", sides: 4, equalSides: shape.equalSides, label: shape.label });
+      return valid({
+        kind: "polygon",
+        sides: 4,
+        equalSides: shape.equalSides,
+        label: reveal ? shape.name : `${shape.properties} — name this quadrilateral`,
+      });
     }
 
     case "geo-coordinate-intro": {
@@ -938,7 +1167,7 @@ export function buildVisual(
         const end = { x: start.x + num(move[3]), y: start.y + num(move[4]) };
         return valid({
           kind: "coordinate-grid",
-          points: [start, end],
+          points: reveal ? [start, end] : [],
           max: Math.max(start.x, start.y, end.x, end.y, 5) + 1,
         });
       }
@@ -948,7 +1177,7 @@ export function buildVisual(
       const y = num(origin[2]);
       return valid({
         kind: "coordinate-grid",
-        points: [{ x, y }],
+        points: reveal ? [{ x, y }] : [],
         max: Math.max(x, y, 5) + 1,
       });
     }
@@ -973,41 +1202,81 @@ export function buildVisual(
 }
 
 /** Two-step word problems: picture the multiplicative step, else the compare step. */
-function wordProblemVisual(text: string): VisualModel | null {
+function wordProblemVisual(text: string, reveal: boolean): VisualModel | null {
   const bags = /Each bag gets (\d+) stickers and (\d+) candies\. .+ makes (\d+) bags\./.exec(text);
   if (bags) {
     const [a, b, c] = [num(bags[1]), num(bags[2]), num(bags[3])];
-    return { kind: "area-model", rows: c, cols: a + b, label: `${c} bags of ${a} + ${b} items` };
+    if (!reveal) {
+      // A grid of c by (a + b) would print the per-bag total, which is step one.
+      return {
+        kind: "bar-graph",
+        values: [a, b],
+        label: `${c} bags, each with ${a} stickers and ${b} candies`,
+        unit: "items",
+      };
+    }
+    return {
+      kind: "area-model",
+      rows: c,
+      cols: a + b,
+      label: `${c} bags of ${a} + ${b} = ${(a + b) * c} items`,
+    };
   }
   const muffins = /boxes with (\d+) muffins each\. .+ buys (\d+) boxes plus (\d+) extra muffins\./.exec(text);
   if (muffins) {
     const [a, b, c] = [num(muffins[1]), num(muffins[2]), num(muffins[3])];
-    return { kind: "area-model", rows: b, cols: a, label: `${b} boxes of ${a} muffins, plus ${c} extra` };
+    return {
+      kind: "area-model",
+      rows: b,
+      cols: a,
+      label: reveal ? `${b} boxes of ${a} muffins plus ${c} = ${a * b + c}` : `${b} boxes of ${a} muffins, plus ${c} extra`,
+    };
   }
   const money = /has \$(\d+)\. .+ buys (\d+) books for \$(\d+) each\./.exec(text);
   if (money) {
     const [a, c, b] = [num(money[1]), num(money[2]), num(money[3])];
-    return { kind: "area-model", rows: c, cols: b, label: `${c} books at $${b} each, from $${a}` };
+    return {
+      kind: "area-model",
+      rows: c,
+      cols: b,
+      label: reveal ? `${c} books at $${b} each, from $${a} = $${a - c * b}` : `${c} books at $${b} each, from $${a}`,
+    };
   }
   const shells = /collects (\d+) shells on Saturday and (\d+) shells on Sunday, then shares all (\d+) shells equally among (\d+) friends\./.exec(text);
   if (shells) {
-    const [a, b, total] = [num(shells[1]), num(shells[2]), num(shells[3])];
+    const [a, b, total, friends] = [num(shells[1]), num(shells[2]), num(shells[3]), num(shells[4])];
     return {
       kind: "bar-graph",
       values: [a, b],
-      label: `shells collected: ${a} + ${b} = ${total}`,
+      label: reveal
+        ? `shells collected: ${a} + ${b} = ${total}, shared among ${friends}`
+        : `shells collected on Saturday and Sunday`,
       unit: "shells",
     };
   }
   const cookies = /makes (\d+) cookies, sells (\d+), then packs the rest into boxes of (\d+)\./.exec(text);
   if (cookies) {
-    const [made, sold] = [num(cookies[1]), num(cookies[2])];
-    return { kind: "bar-graph", values: [made, sold], label: `cookies made and sold`, unit: "cookies" };
+    const [made, sold, perBox] = [num(cookies[1]), num(cookies[2]), num(cookies[3])];
+    return {
+      kind: "bar-graph",
+      values: [made, sold],
+      label: reveal
+        ? `cookies: ${made} made, ${sold} sold, packed ${perBox} per box`
+        : `cookies made and sold, then packed ${perBox} per box`,
+      unit: "cookies",
+    };
   }
   const plants = /garden has (\d+) rows with (\d+) plants each\. (\d+) plants are moved elsewhere\./.exec(text);
   if (plants) {
     const [rows, perRow, moved] = [num(plants[1]), num(plants[2]), num(plants[3])];
-    return { kind: "area-model", rows, cols: perRow, label: `${rows} rows of ${perRow} plants, ${moved} moved` };
+    return {
+      kind: "area-model",
+      rows,
+      cols: perRow,
+      label: reveal
+        ? `${rows} rows of ${perRow} plants, ${moved} moved: ${rows * perRow - moved} remain`
+        : `${rows} rows of ${perRow} plants, ${moved} moved`,
+    };
   }
   return null;
 }
@@ -1016,15 +1285,19 @@ function wordProblemVisual(text: string): VisualModel | null {
  * Accessible description
  * ------------------------------------------------------------------ */
 
+function fractionPhrase(fraction: VisualFraction): string {
+  if (fraction.numerator === 0) return `an unshaded bar cut into ${fraction.denominator} equal parts`;
+  const more = fraction.numerator > fraction.denominator ? ", which is more than one whole" : "";
+  return `a bar cut into ${fraction.denominator} equal parts with ${fraction.numerator} shaded${more}`;
+}
+
 /** Precise, kid-readable sentence describing the maths in a model. */
-export function describeVisual(model: VisualModel): string {
+export function describeVisual(model: VisualModel, options: VisualOptions = {}): string {
+  const reveal = options.reveal === true;
   switch (model.kind) {
     case "fraction-bar": {
-      const more = model.numerator > model.denominator ? ", which is more than one whole" : "";
-      const second = model.compare
-        ? `; a second bar is cut into ${model.compare.denominator} equal parts with ${model.compare.numerator} shaded`
-        : "";
-      return `A bar cut into ${model.denominator} equal parts with ${model.numerator} shaded${more}${second}.`;
+      const second = model.compare ? `; below it ${fractionPhrase(model.compare)}` : "";
+      return `Above, ${fractionPhrase(model)}${second}.`;
     }
     case "number-line": {
       const marks = model.marks.map(fmtNum).join(" and ");
@@ -1039,27 +1312,41 @@ export function describeVisual(model: VisualModel): string {
     }
     case "area-model": {
       const caption = model.label ? ` — ${model.label}` : "";
-      return `A grid of ${model.rows} rows and ${model.cols} columns${caption}, showing ${model.rows * model.cols} small squares in all.`;
+      const total = reveal ? `, showing ${model.rows * model.cols} small squares in all` : "";
+      return `A grid of ${model.rows} rows and ${model.cols} columns${caption}${total}.`;
     }
     case "place-value": {
       if (model.highlight === undefined) {
         return `A place-value table for the number ${model.digits}.`;
       }
-      const digit = model.digits[model.highlight] ?? "?";
       const place = placeNameAt(model.digits, model.highlight);
+      const named = place && place !== "decimal point";
+      if (!reveal) {
+        return named
+          ? `A place-value table for ${model.digits} with the ${place} digit called out.`
+          : `A place-value table for ${model.digits}.`;
+      }
+      const digit = model.digits[model.highlight] ?? "?";
       const unit = placeUnitAt(model.digits, model.highlight);
-      const worth = place && unit ? ` — the ${place} place, so ${digit} × ${unit}` : "";
+      const worth = named && unit ? ` — the ${place} place, so ${digit} × ${unit}` : "";
       return `A place-value table for ${model.digits} with the digit ${digit} called out${worth}.`;
     }
     case "coordinate-grid": {
+      if (model.points.length === 0) {
+        return `A blank coordinate grid reaching ${fmtNum(model.max)} on both axes.`;
+      }
       const where = model.points.map((p) => `(${fmtNum(p.x)}, ${fmtNum(p.y)})`).join(" and ");
       return `A coordinate grid reaching ${fmtNum(model.max)} on both axes with a point at ${where}.`;
     }
     case "angle": {
       const type = model.degrees === 90 ? "right" : model.degrees < 90 ? "acute" : "obtuse";
+      if (!reveal) return `An angle of ${fmtNum(model.degrees)} degrees.`;
       return `An angle of ${fmtNum(model.degrees)} degrees, which is ${type === "right" ? "a" : "an"} ${type} angle.`;
     }
     case "unit-cubes": {
+      if (!reveal) {
+        return `A box ${model.length} cubes long, ${model.width} wide, and ${model.height} tall.`;
+      }
       const volume = model.length * model.width * model.height;
       return `A box ${model.length} cubes long, ${model.width} wide, and ${model.height} tall, holding ${volume} unit cubes in all.`;
     }
@@ -1069,12 +1356,19 @@ export function describeVisual(model: VisualModel): string {
     case "polygon": {
       const shape =
         model.equalSides === false
-          ? `${model.sides}-sided shape with sides of different lengths`
-          : `regular ${model.sides}-sided shape`;
-      const sentence = model.label ? `A ${shape} — ${model.label}` : `A ${shape}`;
+          ? "shape with sides of different lengths"
+          : "regular shape";
+      const count = reveal
+        ? String(model.sides)
+        : (NUMBER_WORDS[model.sides] ?? String(model.sides));
+      const sentence = model.label ? `A ${count}-sided ${shape} — ${model.label}` : `A ${count}-sided ${shape}`;
       return /[.?!]$/.test(sentence) ? sentence : `${sentence}.`;
     }
     case "symmetry": {
+      if (!reveal) {
+        const count = NUMBER_WORDS[model.sides] ?? String(model.sides);
+        return `A ${count}-sided shape.`;
+      }
       const lines = model.axes === 1 ? "line" : "lines";
       return `A ${model.sides}-sided shape with ${model.axes} dashed ${lines} of symmetry drawn through it.`;
     }

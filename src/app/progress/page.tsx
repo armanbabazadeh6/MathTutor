@@ -39,6 +39,39 @@ function isStarted(session: PlanSessionState, skillId: string): boolean {
   return session.mastery[skillId] !== undefined || session.levels[skillId] !== undefined;
 }
 
+/** Chip-sized name per domain (the full names wrap on a 320px row). */
+const DOMAIN_SHORT: Record<string, string> = {
+  "operations-algebraic": "Operations",
+  "base-ten": "Base ten",
+  fractions: "Fractions",
+  "measurement-data": "Measurement",
+  geometry: "Geometry",
+};
+
+/** Skills of one domain, in the order the curriculum introduces them. */
+function skillsOfDomain(domain: string): Skill[] {
+  return SKILLS.filter((s) => s.domain === domain).sort((a, b) => curriculumRank(a.id) - curriculumRank(b.id));
+}
+
+/**
+ * The domain the kid is working on: weakest started skill wins, so the group
+ * holding the shakiest skill opens first. Nothing started yet -> the domain
+ * holding the curriculum head (the skill the plan serves first on a cold start).
+ */
+function focusDomainId(session: PlanSessionState): string {
+  const started = SKILLS.filter((s) => isStarted(session, s.id));
+  if (started.length > 0) {
+    const weakest = started.slice().sort(
+      (a, b) =>
+        (session.mastery[a.id] ?? DEFAULT_MASTERY) - (session.mastery[b.id] ?? DEFAULT_MASTERY) ||
+        curriculumRank(a.id) - curriculumRank(b.id),
+    );
+    return weakest[0].domain;
+  }
+  const head = SKILLS.find((s) => s.id === CURRICULUM_ORDER[0]);
+  return head ? head.domain : SKILL_DOMAINS[0].id;
+}
+
 /** Local noon for a "YYYY-MM-DD" key; noon keeps DST arithmetic exact. */
 function noonOf(day: string): Date {
   const d = new Date(`${day}T12:00:00`);
@@ -221,11 +254,97 @@ function SkillRow({ skill, session }: { skill: Skill; session: PlanSessionState 
   );
 }
 
+/** Which domains the kid left open, remembered for this browser session. */
+const OPEN_DOMAINS_KEY = "mt.progress.openDomains";
+
+function readOpenDomains(): Record<string, boolean> | null {
+  try {
+    const raw = window.sessionStorage.getItem(OPEN_DOMAINS_KEY);
+    if (raw === null) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    const open: Record<string, boolean> = {};
+    for (const [id, value] of Object.entries(parsed)) if (value === true) open[id] = true;
+    return open;
+  } catch {
+    return null;
+  }
+}
+
+function saveOpenDomains(open: Record<string, boolean>): void {
+  try {
+    window.sessionStorage.setItem(OPEN_DOMAINS_KEY, JSON.stringify(open));
+  } catch {
+    /* storage blocked: the choice still holds for this mount */
+  }
+}
+
+/** One collapsible domain card: summary row, started bar, and its skill rows. */
+function DomainGroup({
+  domain,
+  session,
+  open,
+  onToggle,
+}: {
+  domain: { id: string; name: string };
+  session: PlanSessionState;
+  open: boolean;
+  onToggle: (domainId: string) => void;
+}) {
+  const skills = skillsOfDomain(domain.id);
+  const started = skills.reduce((n, s) => (isStarted(session, s.id) ? n + 1 : n), 0);
+  const controlId = `domain-control-${domain.id}`;
+  const regionId = `domain-region-${domain.id}`;
+  return (
+    <section id={`domain-${domain.id}`} className="mt-card scroll-mt-24 overflow-hidden">
+      <button
+        id={controlId}
+        type="button"
+        aria-expanded={open}
+        aria-controls={regionId}
+        onClick={() => onToggle(domain.id)}
+        className="mt-focus flex w-full items-center gap-3 px-4 py-3 text-left"
+      >
+        <span className="min-w-0 flex-1">
+          <span className="block font-display text-kid-lg font-semibold leading-tight">{domain.name}</span>
+          <span className="mt-eyebrow block text-muted">
+            {started} of {skills.length} started
+          </span>
+        </span>
+        <span aria-hidden className="shrink-0 font-display text-kid-lg text-muted">
+          {open ? "▾" : "▸"}
+        </span>
+      </button>
+      <div className={`px-4 ${open ? "" : "pb-3"}`}>
+        <ProgressBar
+          value={started}
+          max={skills.length}
+          tone="sky"
+          size="sm"
+          label={`${domain.name}: ${started} of ${skills.length} skills started`}
+        />
+      </div>
+      <div id={regionId} role="region" aria-labelledby={controlId} hidden={!open} className="px-4 pb-4 pt-3">
+        <ul className="flex flex-col gap-4">
+          {skills.map((skill) => (
+            <SkillRow key={skill.id} skill={skill} session={session} />
+          ))}
+        </ul>
+      </div>
+    </section>
+  );
+}
+
 export default function ProgressPage() {
   const [data, setData] = useState<ProgressPageData | null>(null);
+  const [openDomains, setOpenDomains] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
-    setData(loadPageData());
+    const loaded = loadPageData();
+    setData(loaded);
+    // Reopen what the kid left open; otherwise the weakest started skill's
+    // domain, so the first screen always shows real work.
+    setOpenDomains(readOpenDomains() ?? { [focusDomainId(loaded.session)]: true });
   }, []);
 
   if (!data) {
@@ -240,6 +359,22 @@ export default function ProgressPage() {
   const { progress, session, streak, due } = data;
   const startedCount = SKILLS.reduce((n, s) => (isStarted(session, s.id) ? n + 1 : n), 0);
   const dueShown = due.slice(0, MAX_DUE_ROWS);
+
+  const toggleDomain = (domainId: string) => {
+    const next = { ...openDomains, [domainId]: openDomains[domainId] !== true };
+    setOpenDomains(next);
+    saveOpenDomains(next);
+  };
+
+  const jumpToDomain = (domainId: string) => {
+    const next = { ...openDomains, [domainId]: true };
+    setOpenDomains(next);
+    saveOpenDomains(next);
+    const target = document.getElementById(`domain-${domainId}`);
+    if (!target) return;
+    const calm = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    target.scrollIntoView({ behavior: calm ? "auto" : "smooth", block: "start" });
+  };
 
   return (
     <main className="mt-shell mt-shell-nav flex min-h-screen flex-col gap-5 py-6">
@@ -264,6 +399,34 @@ export default function ProgressPage() {
               </div>
             </div>
           </header>
+
+          <nav aria-label="Jump to a skill group" className="sticky top-2 z-30 -mx-5 bg-cream/95 px-5 py-2 backdrop-blur">
+            <ul className="flex gap-2 overflow-x-auto">
+              {SKILL_DOMAINS.map((domain) => (
+                <li key={domain.id} className="shrink-0">
+                  <button
+                    type="button"
+                    aria-controls={`domain-region-${domain.id}`}
+                    aria-expanded={openDomains[domain.id] === true}
+                    onClick={() => jumpToDomain(domain.id)}
+                    className="mt-focus flex min-h-14 items-center rounded-pill border-2 border-line bg-card px-4 text-kid-sm font-bold shadow-chunky-sm"
+                  >
+                    {DOMAIN_SHORT[domain.id] ?? domain.name}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </nav>
+
+          {SKILL_DOMAINS.map((domain) => (
+            <DomainGroup
+              key={domain.id}
+              domain={domain}
+              session={session}
+              open={openDomains[domain.id] === true}
+              onToggle={toggleDomain}
+            />
+          ))}
 
           <DuoCard
             title="Practice days"
@@ -326,7 +489,7 @@ export default function ProgressPage() {
                 {dueShown.map((entry) => (
                   <li
                     key={entry.skill.id}
-                    className="flex flex-col gap-0.5 rounded-2xl border-2 border-line bg-cream px-4 py-3"
+                    className="flex flex-col gap-0.5 rounded-2xl border-2 border-line bg-cream px-4 py-2.5"
                   >
                     <p className="text-kid-base font-bold">🔁 {entry.skill.name}</p>
                     <p className="text-kid-sm font-semibold text-ink-soft">{reviewWhy(entry.daysSince)}</p>
@@ -341,26 +504,6 @@ export default function ProgressPage() {
               </ul>
             )}
           </DuoCard>
-
-          {SKILL_DOMAINS.map((domain) => {
-            const skills = SKILLS.filter((s) => s.domain === domain.id).sort(
-              (a, b) => curriculumRank(a.id) - curriculumRank(b.id),
-            );
-            const started = skills.reduce((n, s) => (isStarted(session, s.id) ? n + 1 : n), 0);
-            return (
-              <DuoCard
-                key={domain.id}
-                title={domain.name}
-                subtitle={`${started} of ${skills.length} skill${skills.length === 1 ? "" : "s"} started`}
-              >
-                <ul className="flex flex-col gap-4">
-                  {skills.map((skill) => (
-                    <SkillRow key={skill.id} skill={skill} session={session} />
-                  ))}
-                </ul>
-              </DuoCard>
-            );
-          })}
 
           <StudentNav />
         </div>
