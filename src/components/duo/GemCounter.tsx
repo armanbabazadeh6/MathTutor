@@ -12,7 +12,7 @@ export function GemCounter({ gems, label }: { gems: number; label?: string }) {
         <path d="M7 3l5 6 5-6" fill="none" stroke="#bfe9ff" strokeWidth="1.6" strokeLinejoin="round" />
         <path d="M3 9h18" stroke="#1899d6" strokeWidth="1.4" fill="none" />
       </svg>
-      <span className="font-display text-kid-lg font-bold text-sky">{gems}</span>
+      <span className="font-display text-kid-lg font-bold tabular-nums text-skyink">{gems}</span>
     </div>
   );
 }

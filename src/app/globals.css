@@ -2,33 +2,114 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ============================================================================
+   MathTutor design tokens
+   ----------------------------------------------------------------------------
+   One source of truth for colour, type, space, radius, elevation and motion.
+   Every value below is chosen to survive on a warm cream "paper" background and
+   to clear WCAG AA where it carries text. `*-ink` variants are the only accent
+   shades allowed to be used as a text colour.
+   ========================================================================= */
+
 :root {
-  /* Bright kid-friendly palette — original, no third-party assets. */
+  /* --- Surfaces --------------------------------------------------------- */
   --color-cream: #fff8ea;
+  --color-cream-deep: #fdf0d9;
   --color-card: #ffffff;
-  --color-ink: #3f3a32;
-  --color-muted: #8a7d6b;
-  --color-line: #f0e3cb;
+  --color-line: #efdfc4;
+  --color-line-soft: #f6ecda;
+
+  /* --- Ink ramp (warm neutrals) ----------------------------------------- */
+  --color-ink: #3f3a32; /* 10.7:1 on white */
+  --color-ink-soft: #5a5148; /* 7.8:1 on white */
+  --color-muted: #7a6d5c; /* 5.0:1 on white, 4.8:1 on cream */
+
+  /* --- Brand ------------------------------------------------------------
+     `primary` stays the vivid display green (mascot, bars, decor).
+     `primary-btn` is the accessible CTA fill: 4.7:1 with white at any size. */
   --color-primary: #58cc02;
+  --color-primary-btn: #3a8400;
   --color-primary-dark: #46a302;
   --color-primary-deep: #2f7d62;
+  --color-primary-ink: #357f02; /* 5.0:1 on white — green text */
+
+  /* --- Accents (bright decor) + ink variants (text-safe) ---------------- */
   --color-accent: #ff9600;
   --color-accent-dark: #e07f00;
+  --color-accent-ink: #a85300; /* 5.2:1 on white */
   --color-sunny: #ffc800;
   --color-sunny-dark: #e0a800;
+  --color-sunny-ink: #8a6100; /* 5.1:1 on white */
   --color-mint: #d7ffb8;
+  --color-mint-deep: #b7f08a;
   --color-coral: #ff5c5c;
   --color-coral-dark: #d33131;
+  --color-coral-ink: #c42b2b; /* 5.2:1 on white */
   --color-sky: #1cb0f6;
   --color-sky-dark: #1899d6;
+  --color-sky-ink: #0b6e9e; /* 5.1:1 on white */
   --color-grape: #ce82ff;
   --color-grape-dark: #a568cc;
-  --radius-card: 1.5rem;
+  --color-grape-ink: #7d3fae; /* 5.0:1 on white */
+
+  /* --- Radii ------------------------------------------------------------ */
+  --radius-xs: 0.75rem;
+  --radius-sm: 1rem;
   --radius-chunky: 1.25rem;
+  --radius-card: 1.5rem;
+  --radius-lg: 2rem;
   --radius-pill: 999px;
+
+  /* --- Type ------------------------------------------------------------- */
   --font-display: "Fredoka", "Nunito", ui-rounded, system-ui, sans-serif;
   --font-body: "Nunito", ui-rounded, system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  /* --- Elevation --------------------------------------------------------
+     Chunky 3D stacking: a solid offset for the "pressable block" look, plus
+     soft ambient shadows for floating surfaces. Never a blurry grey blob. */
   --chunky-shadow: rgba(63, 58, 50, 0.16);
+  --shadow-chunky-sm: 0 3px 0 var(--chunky-shadow);
+  --shadow-chunky: 0 4px 0 var(--chunky-shadow);
+  --shadow-chunky-lg: 0 6px 0 var(--chunky-shadow);
+  --shadow-float: 0 2px 4px rgba(63, 58, 50, 0.06), 0 12px 28px rgba(63, 58, 50, 0.12);
+  --shadow-lift: 0 4px 8px rgba(63, 58, 50, 0.08), 0 20px 44px rgba(63, 58, 50, 0.16);
+
+  /* --- Motion ----------------------------------------------------------- */
+  --dur-instant: 90ms;
+  --dur-fast: 140ms;
+  --dur-base: 220ms;
+  --dur-slow: 360ms;
+  --dur-slower: 560ms;
+  --ease-out-soft: cubic-bezier(0.22, 0.9, 0.28, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-in-out-soft: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* --- Layout ----------------------------------------------------------- */
+  --shell-max: 44rem;
+  --gutter: 1.25rem;
+}
+
+/* Idle blink for the mascot's eyes. */
+@keyframes mt-blink {
+  0%, 92%, 100% { transform: scaleY(1); }
+  95%, 97% { transform: scaleY(0.08); }
+}
+.mt-blink {
+  animation: mt-blink 5200ms var(--ease-in-out-soft) infinite;
+  transform-origin: center;
+}
+
+/* Warm atmosphere behind all content: fixed so it never scrolls away. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(120% 60% at 50% -8%, rgba(255, 200, 0, 0.22), transparent 62%),
+    radial-gradient(90% 50% at 100% 8%, rgba(28, 176, 246, 0.1), transparent 60%),
+    radial-gradient(80% 45% at 0% 4%, rgba(88, 204, 2, 0.12), transparent 58%);
 }
 
 * {
@@ -37,20 +118,57 @@
 
 html {
   -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
 }
 
 body {
-  background: var(--color-cream);
+  background-color: var(--color-cream);
+  /* Paper texture: a barely-there dot grid that tiles seamlessly while
+     scrolling. No `background-attachment: fixed` — it repaints on iOS. */
+  background-image: radial-gradient(rgba(63, 58, 50, 0.055) 1px, transparent 1px);
+  background-size: 22px 22px;
   color: var(--color-ink);
   font-family: var(--font-body);
   font-size: 17px;
   line-height: 1.55;
+  overscroll-behavior-y: none;
+  -webkit-font-smoothing: antialiased;
 }
 
 /* Big type scale for kids — display font on headings. */
-h1, h2, h3, .font-display {
+h1,
+h2,
+h3,
+.font-display {
   font-family: var(--font-display);
   letter-spacing: 0.01em;
+}
+
+h1,
+h2,
+h3 {
+  text-wrap: balance;
+}
+
+p {
+  text-wrap: pretty;
+}
+
+/* Focus rings: visible for keyboard, invisible for touch. */
+:focus-visible {
+  outline: 3px solid var(--color-sky-dark);
+  outline-offset: 2px;
+  border-radius: var(--radius-xs);
+}
+
+.mt-focus:focus-visible {
+  outline: 3px solid var(--color-sky-dark);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: var(--color-mint);
+  color: var(--color-ink);
 }
 
 .touch-target {
@@ -64,6 +182,52 @@ h1, h2, h3, .font-display {
   min-width: 56px;
 }
 
+/* ---- Layout shell ---------------------------------------------------- */
+
+/* Page column: one rhythm for every route. */
+.mt-shell {
+  margin-inline: auto;
+  width: 100%;
+  max-width: var(--shell-max);
+  padding-inline: var(--gutter);
+}
+
+/* Reserve room for the floating bottom nav so content never hides under it. */
+.mt-shell-nav {
+  padding-bottom: calc(7.5rem + env(safe-area-inset-bottom));
+}
+
+/* ---- Surfaces -------------------------------------------------------- */
+
+.mt-card {
+  border-radius: var(--radius-card);
+  border: 2px solid var(--color-line);
+  background: var(--color-card);
+  box-shadow: var(--shadow-chunky);
+}
+
+.mt-card-flat {
+  border-radius: var(--radius-card);
+  border: 2px solid var(--color-line);
+  background: var(--color-card);
+}
+
+.mt-divider {
+  height: 2px;
+  border-radius: var(--radius-pill);
+  background: var(--color-line-soft);
+}
+
+/* Small uppercase label — the "eyebrow" above a section title. */
+.mt-eyebrow {
+  font-family: var(--font-display);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+
 /* ---- Touch motion utilities (iPad tap feel) ---- */
 
 /* Shimmer placeholder for quest/plan loading states. */
@@ -71,6 +235,7 @@ h1, h2, h3, .font-display {
   position: relative;
   overflow: hidden;
   background: var(--color-line);
+  border-radius: var(--radius-sm);
 }
 .mt-skeleton::after {
   content: "";
@@ -78,7 +243,7 @@ h1, h2, h3, .font-display {
   inset: 0;
   transform: translateX(-100%);
   background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.65), transparent);
-  animation: mt-shimmer 1400ms ease-in-out infinite;
+  animation: mt-shimmer var(--dur-slower) var(--ease-in-out-soft) infinite;
   pointer-events: none;
 }
 @keyframes mt-shimmer {
@@ -89,18 +254,18 @@ h1, h2, h3, .font-display {
 /* Stagger-in for lists (path nodes, reward cards, topic tiles).
    Set style={{ animationDelay: `${i * 60}ms` }} per item; delay caps at ~480ms. */
 .mt-stagger-item {
-  animation: mt-fade-slide 280ms ease-out both;
+  animation: mt-fade-slide var(--dur-slow) var(--ease-out-soft) backwards;
   animation-delay: var(--mt-delay, 0ms);
 }
 @keyframes mt-fade-slide {
-  0% { transform: translateY(6px); opacity: 0; }
+  0% { transform: translateY(8px); opacity: 0; }
   100% { transform: translateY(0); opacity: 1; }
 }
 
 /* Opacity-only stagger for absolutely-positioned items (path nodes):
    no transform, so it never fights positioning or press physics. */
 .mt-stagger-fade {
-  animation: mt-fade-only 300ms ease-out both;
+  animation: mt-fade-only var(--dur-slow) var(--ease-out-soft) both;
 }
 @keyframes mt-fade-only {
   0% { opacity: 0; }
@@ -110,7 +275,7 @@ h1, h2, h3, .font-display {
 /* Container stagger: every direct child rises in with a capped delay.
    Fill is backwards so press physics (:active scale) still win after entrance. */
 .mt-stagger > * {
-  animation: mt-fade-slide 280ms ease-out backwards;
+  animation: mt-fade-slide var(--dur-slow) var(--ease-out-soft) backwards;
 }
 .mt-stagger > *:nth-child(1) { animation-delay: 0ms; }
 .mt-stagger > *:nth-child(2) { animation-delay: 60ms; }
@@ -124,7 +289,7 @@ h1, h2, h3, .font-display {
 
 /* Visible press physics for any tappable missing it. */
 .mt-press {
-  transition: transform 120ms ease-out;
+  transition: transform var(--dur-fast) var(--ease-out-soft);
 }
 .mt-press:active {
   transform: scale(0.95);
@@ -136,20 +301,22 @@ h1, h2, h3, .font-display {
   border-radius: var(--radius-chunky);
   border: 2px solid var(--color-line);
   background: var(--color-card);
-  box-shadow: 0 4px 0 var(--chunky-shadow);
+  box-shadow: var(--shadow-chunky);
 }
 
 .duo-press {
-  transition: transform 80ms ease-out, box-shadow 80ms ease-out, filter 120ms ease-out;
+  transition: transform var(--dur-instant) var(--ease-out-soft),
+    box-shadow var(--dur-instant) var(--ease-out-soft),
+    filter var(--dur-fast) var(--ease-out-soft);
   will-change: transform;
 }
-.duo-press:active {
+.duo-press:active:not(:disabled) {
   transform: translateY(4px);
   box-shadow: 0 0 0 var(--chunky-shadow);
 }
 .duo-press:disabled {
   transform: none;
-  filter: grayscale(0.5) opacity(0.6);
+  filter: grayscale(0.55) opacity(0.55);
   cursor: not-allowed;
 }
 
@@ -163,14 +330,14 @@ h1, h2, h3, .font-display {
   top: 0;
   bottom: 0;
   width: 40%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
-  animation: duo-shine 1600ms ease-in-out infinite;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.5), transparent);
+  animation: duo-shine 2400ms var(--ease-in-out-soft) infinite;
   pointer-events: none;
 }
 
 /* Winding lesson path connector. */
 .duo-path-node {
-  transition: transform 160ms ease-out;
+  transition: transform var(--dur-base) var(--ease-spring);
 }
 .duo-path-node:active {
   transform: scale(0.92);
@@ -178,22 +345,123 @@ h1, h2, h3, .font-display {
 
 /* Calm screen entrance for student pages (pair with PageFade). */
 .mt-page {
-  animation: mt-g-rise 260ms ease-out;
+  animation: mt-g-rise var(--dur-slow) var(--ease-out-soft) backwards;
 }
 
 @keyframes mt-g-rise {
-  0% { transform: translateY(8px); opacity: 0; }
+  0% { transform: translateY(10px); opacity: 0; }
   100% { transform: translateY(0); opacity: 1; }
 }
 
 @keyframes mt-g-glow {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.04); }
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 200, 0, 0); }
+  50% { transform: scale(1.035); box-shadow: 0 0 0 12px rgba(255, 200, 0, 0.14); }
 }
 
 .mt-glow {
-  animation: mt-g-glow 1600ms ease-in-out infinite;
+  animation: mt-g-glow 2000ms var(--ease-in-out-soft) infinite;
 }
+
+/* ---- Motion primitives ---------------------------------------------- */
+
+/* Route transition: every navigation settles in under 300ms.
+   Fills `backwards` only — a lingering transform would turn this wrapper into
+   a containing block and break `position: fixed` sheets inside the page. */
+@keyframes mt-route-in {
+  0% { transform: translateY(10px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+.mt-route {
+  animation: mt-route-in var(--dur-slow) var(--ease-out-soft) backwards;
+}
+
+/* Reward moments: XP number flies up and fades. */
+@keyframes mt-xp-fly {
+  0% { transform: translateY(6px) scale(0.9); opacity: 0; }
+  22% { transform: translateY(-6px) scale(1.06); opacity: 1; }
+  72% { transform: translateY(-22px) scale(1); opacity: 1; }
+  100% { transform: translateY(-40px) scale(0.98); opacity: 0; }
+}
+.mt-xp-fly {
+  animation: mt-xp-fly 1200ms var(--ease-out-soft) both;
+}
+
+/* Sheen sweep across completed path nodes / cards. */
+@keyframes mt-sheen {
+  0% { background-position: -180% 0; }
+  100% { background-position: 280% 0; }
+}
+.mt-sheen {
+  background-image: linear-gradient(
+    100deg,
+    transparent 30%,
+    rgba(255, 255, 255, 0.75) 48%,
+    transparent 66%
+  );
+  background-size: 220% 100%;
+  animation: mt-sheen 2200ms var(--ease-in-out-soft) infinite;
+}
+
+/* Soft flame flicker for streak counters. */
+@keyframes mt-flicker {
+  0%, 100% { transform: scale(1) rotate(-1.5deg); opacity: 1; }
+  35% { transform: scale(1.07) rotate(1.5deg); opacity: 0.94; }
+  70% { transform: scale(0.98) rotate(-0.5deg); opacity: 1; }
+}
+.mt-flicker {
+  animation: mt-flicker 1400ms var(--ease-in-out-soft) infinite;
+  transform-origin: 50% 90%;
+}
+
+/* Slide-up entrance for sheets and toasts. */
+@keyframes mt-slide-up {
+  0% { transform: translateY(24px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+.mt-slide-up {
+  animation: mt-slide-up var(--dur-slow) var(--ease-out-soft) both;
+}
+
+@keyframes mt-sheet-scrim {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+.mt-scrim {
+  animation: mt-sheet-scrim var(--dur-base) var(--ease-out-soft) both;
+}
+
+/* Gentle attention wiggle for nudges (not errors). */
+@keyframes mt-nudge {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-3px); }
+  75% { transform: translateX(3px); }
+}
+.mt-nudge {
+  animation: mt-nudge var(--dur-base) var(--ease-in-out-soft) 1;
+}
+
+/* Badge/medal earn pop — bigger than a plain scale-in. */
+@keyframes mt-medal {
+  0% { transform: scale(0.4) rotate(-18deg); opacity: 0; }
+  55% { transform: scale(1.18) rotate(6deg); opacity: 1; }
+  78% { transform: scale(0.96) rotate(-2deg); }
+  100% { transform: scale(1) rotate(0deg); opacity: 1; }
+}
+.mt-medal {
+  animation: mt-medal 720ms var(--ease-spring) both;
+}
+
+/* Indeterminate bar shimmer for loading states. */
+@keyframes mt-indeterminate {
+  0% { transform: translateX(-60%) scaleX(0.4); }
+  60% { transform: translateX(40%) scaleX(0.7); }
+  100% { transform: translateX(120%) scaleX(0.4); }
+}
+.mt-indeterminate {
+  animation: mt-indeterminate 1400ms var(--ease-in-out-soft) infinite;
+}
+
+/* ---- Original chunky keyframes (kept verbatim for compatibility) ---- */
 
 @keyframes duo-pop {
   0% { transform: scale(0.6); opacity: 0; }
@@ -221,31 +489,61 @@ h1, h2, h3, .font-display {
   100% { transform: translateX(220%) skewX(-20deg); }
 }
 
-.animate-duo-pop { animation: duo-pop 300ms ease-out both; }
-.animate-duo-wiggle { animation: duo-wiggle 480ms ease-in-out; }
-.animate-duo-bounce-soft { animation: duo-bounce-soft 900ms ease-in-out infinite; }
-.animate-duo-float { animation: duo-float 2600ms ease-in-out infinite; }
+.animate-duo-pop { animation: duo-pop var(--dur-slow) var(--ease-spring) both; }
+.animate-duo-wiggle { animation: duo-wiggle 480ms var(--ease-in-out-soft); }
+.animate-duo-bounce-soft { animation: duo-bounce-soft 900ms var(--ease-in-out-soft) infinite; }
+.animate-duo-float { animation: duo-float 2600ms var(--ease-in-out-soft) infinite; }
 
+/* ---- Accessibility ----------------------------------------------- */
+
+/* Honour reduced motion everywhere: kill animation AND transition, and make
+   sure nothing is left invisible by an animation that never runs. */
 @media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
   .mt-page,
+  .mt-route,
   .mt-glow,
+  .mt-xp-fly,
+  .mt-sheen,
+  .mt-flicker,
+  .mt-slide-up,
+  .mt-scrim,
+  .mt-nudge,
+  .mt-medal,
+  .mt-indeterminate,
   .animate-duo-pop,
   .animate-duo-wiggle,
   .animate-duo-bounce-soft,
   .animate-duo-float,
   .duo-shine-bar,
-  .duo-press,
   .mt-stagger-item,
   .mt-stagger > *,
   .mt-stagger-fade,
   .mt-skeleton,
-  .mt-skeleton::after,
-  .mt-press {
-    animation: none;
-    transition: none;
+  .mt-skeleton::after {
+    animation: none !important;
   }
   .duo-press:active,
   .mt-press:active {
     transform: none;
+  }
+}
+
+/* Forced-colors / high-contrast: keep the chunky borders legible. */
+@media (forced-colors: active) {
+  .duo-chunk,
+  .mt-card,
+  .mt-card-flat {
+    border: 2px solid CanvasText;
   }
 }
