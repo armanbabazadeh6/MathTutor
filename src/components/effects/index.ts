@@ -1,10 +1,8 @@
 export { Celebration } from "./Celebration";
 export { Shake } from "./Shake";
-export { Streak } from "./Streak";
 export { ConfettiBurst } from "./ConfettiBurst";
 export { LevelUpOverlay } from "./LevelUpOverlay";
 export { CountUp } from "./CountUp";
-export { ProgressRing } from "./ProgressRing";
 export { PageFade } from "./PageFade";
 export { Skeleton, ListSkeleton } from "./Skeleton";
 export { tapTick, successBuzz, levelUpBuzz } from "./haptics";

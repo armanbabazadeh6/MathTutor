@@ -1,7 +1,6 @@
 /* MathTutor polish effects — CSS-only animations (no JS libs, no layout shifts).
-   Subtle by design: short durations, small transforms, prefers-reduced-motion
-   disables everything. Import from the effect components or add the classes
-   directly to existing markup. */
+   Subtle by design: short durations, small transforms. The global
+   prefers-reduced-motion block in globals.css neutralises all of this. */
 
 .mt-celebrate {
   animation: mt-pop 420ms ease-out;
@@ -15,11 +14,6 @@
 
 .mt-shake {
   animation: mt-gentle-shake 320ms ease-in-out;
-}
-
-.mt-streak {
-  display: inline-block;
-  animation: mt-streak-pulse 600ms ease-out;
 }
 
 .mt-page-fade {
@@ -36,8 +30,10 @@
 }
 
 .mt-burst-label {
+  font-family: var(--font-display);
   font-size: 1.25rem;
-  font-weight: 800;
+  font-weight: 700;
+  color: var(--color-ink);
 }
 
 .mt-burst-field {
@@ -58,40 +54,6 @@
   will-change: transform, opacity;
 }
 
-.mt-ring {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: none;
-}
-
-.mt-ring-svg {
-  display: block;
-}
-
-.mt-ring-track {
-  stroke: var(--color-line);
-}
-
-.mt-ring-fill {
-  /* `primary-btn` not `primary`: the vivid green is only 1.45:1 against the
-     track, below the 3:1 WCAG 1.4.11 floor for a meaningful graphic. */
-  stroke: var(--color-primary-btn);
-  transition: stroke-dashoffset 700ms var(--ease-out-soft);
-}
-
-.mt-ring-text {
-  position: absolute;
-  font-family: var(--font-display);
-  font-size: 1.0625rem;
-  font-weight: 700;
-  color: var(--color-ink);
-}
- .mt-transition {
-   transition: opacity 160ms ease-out, transform 160ms ease-out;
- }
-
 @keyframes mt-pop {
   0% { transform: scale(0.92); opacity: 0.4; }
   60% { transform: scale(1.02); opacity: 1; }
@@ -110,12 +72,6 @@
   75% { transform: translateX(-2px); }
 }
 
-@keyframes mt-streak-pulse {
-  0% { transform: scale(1); }
-  40% { transform: scale(1.18); }
-  100% { transform: scale(1); }
-}
-
 @keyframes mt-page-in {
   0% { transform: translateY(8px); opacity: 0; }
   100% { transform: translateY(0); opacity: 1; }
@@ -126,24 +82,3 @@
   70% { opacity: 1; }
   100% { transform: translate(var(--mt-dx, 0px), var(--mt-dy, -56px)) scale(1) rotate(var(--mt-rot, 40deg)); opacity: 0; }
 }
-
-@media (prefers-reduced-motion: reduce) {
-  .mt-celebrate,
-  .mt-confetti-piece,
-  .mt-shake,
-  .mt-streak,
-  .mt-fade-slide,
-  .mt-page-fade,
-  .mt-burst-piece,
-  .mt-count-up,
-  .mt-skeleton,
-  .mt-skeleton::after,
-  .mt-stagger-item {
-    animation: none;
-  }
-  .mt-transition,
-  .mt-ring-fill {
-    transition: none;
-  }
-}
-

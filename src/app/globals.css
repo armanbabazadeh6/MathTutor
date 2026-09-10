@@ -225,12 +225,6 @@ p {
   min-width: 56px;
 }
 
-/* 4th-grader usability: primary actions are always at least 56px tall. */
-.mt-touch-56 {
-  min-height: 56px;
-  min-width: 56px;
-}
-
 /* ---- Layout shell ---------------------------------------------------- */
 
 /* Page column: one rhythm for every route. */
@@ -259,12 +253,6 @@ p {
   border-radius: var(--radius-card);
   border: 2px solid var(--color-line);
   background: var(--color-card);
-}
-
-.mt-divider {
-  height: 2px;
-  border-radius: var(--radius-pill);
-  background: var(--color-line-soft);
 }
 
 /* Small uppercase label — the "eyebrow" above a section title.
@@ -337,22 +325,7 @@ p {
 .mt-stagger > *:nth-child(8) { animation-delay: 420ms; }
 .mt-stagger > *:nth-child(n+9) { animation-delay: 480ms; }
 
-/* Visible press physics for any tappable missing it. */
-.mt-press {
-  transition: transform var(--dur-fast) var(--ease-out-soft);
-}
-.mt-press:active {
-  transform: scale(0.95);
-}
-
 /* ---- Chunky 3D building blocks ---- */
-
-.duo-chunk {
-  border-radius: var(--radius-chunky);
-  border: 2px solid var(--color-line);
-  background: var(--color-card);
-  box-shadow: var(--shadow-chunky);
-}
 
 .duo-press {
   transition: transform var(--dur-instant) var(--ease-out-soft),
@@ -393,25 +366,6 @@ p {
   transform: scale(0.92);
 }
 
-/* Calm screen entrance for student pages (pair with PageFade). */
-.mt-page {
-  animation: mt-g-rise var(--dur-slow) var(--ease-out-soft) backwards;
-}
-
-@keyframes mt-g-rise {
-  0% { transform: translateY(10px); opacity: 0; }
-  100% { transform: translateY(0); opacity: 1; }
-}
-
-@keyframes mt-g-glow {
-  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 200, 0, 0); }
-  50% { transform: scale(1.035); box-shadow: 0 0 0 12px rgba(255, 200, 0, 0.14); }
-}
-
-.mt-glow {
-  animation: mt-g-glow 2000ms var(--ease-in-out-soft) infinite;
-}
-
 /* ---- Motion primitives ---------------------------------------------- */
 
 /* Route transition: every navigation settles in under 300ms.
@@ -434,22 +388,6 @@ p {
 }
 .mt-xp-fly {
   animation: mt-xp-fly 1200ms var(--ease-out-soft) both;
-}
-
-/* Sheen sweep across completed path nodes / cards. */
-@keyframes mt-sheen {
-  0% { background-position: -180% 0; }
-  100% { background-position: 280% 0; }
-}
-.mt-sheen {
-  background-image: linear-gradient(
-    100deg,
-    transparent 30%,
-    rgba(255, 255, 255, 0.75) 48%,
-    transparent 66%
-  );
-  background-size: 220% 100%;
-  animation: mt-sheen 2200ms var(--ease-in-out-soft) infinite;
 }
 
 /* Soft flame flicker for streak counters. */
@@ -501,16 +439,6 @@ p {
   animation: mt-medal 720ms var(--ease-spring) both;
 }
 
-/* Indeterminate bar shimmer for loading states. */
-@keyframes mt-indeterminate {
-  0% { transform: translateX(-60%) scaleX(0.4); }
-  60% { transform: translateX(40%) scaleX(0.7); }
-  100% { transform: translateX(120%) scaleX(0.4); }
-}
-.mt-indeterminate {
-  animation: mt-indeterminate 1400ms var(--ease-in-out-soft) infinite;
-}
-
 /* ---- Original chunky keyframes (kept verbatim for compatibility) ---- */
 
 @keyframes duo-pop {
@@ -560,17 +488,13 @@ p {
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
   }
-  .mt-page,
   .mt-route,
-  .mt-glow,
   .mt-xp-fly,
-  .mt-sheen,
   .mt-flicker,
   .mt-slide-up,
   .mt-scrim,
   .mt-nudge,
   .mt-medal,
-  .mt-indeterminate,
   .animate-duo-pop,
   .animate-duo-wiggle,
   .animate-duo-bounce-soft,
@@ -583,15 +507,13 @@ p {
   .mt-skeleton::after {
     animation: none !important;
   }
-  .duo-press:active,
-  .mt-press:active {
+  .duo-press:active {
     transform: none;
   }
 }
 
 /* Forced-colors / high-contrast: keep the chunky borders legible. */
 @media (forced-colors: active) {
-  .duo-chunk,
   .mt-card,
   .mt-card-flat {
     border: 2px solid CanvasText;
