@@ -15,6 +15,12 @@ export interface Reward {
   icon: string;
   active: boolean;
   /**
+   * Soft delete. A reward removed from the catalog keeps its row (and any
+   * redemption that points at it) so history stays readable; `active` alone
+   * cannot express "deleted" vs "switched off".
+   */
+  archivedAt?: string;
+  /**
    * True for seed examples shipped as configuration placeholders.
    * Example rewards are real catalog entries a parent is expected to
    * edit, replace, or deactivate — never fulfilled as listed.

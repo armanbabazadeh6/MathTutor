@@ -49,8 +49,11 @@ export const PROFILE_COLORS = [
 
 export const PROFILE_ANIMALS = ["🦊", "🐼", "🦁", "🐸", "🐰", "🐯", "🐨", "🦄"] as const;
 
-/** Legacy un-namespaced keys adopted into the default profile exactly once. */
-export const LEGACY_KEYS = [
+/**
+ * Legacy un-namespaced keys the v1 backup format owns. Adopted into the
+ * default profile exactly once by migrateLegacyOnce().
+ */
+export const LEGACY_KEYS_V1 = [
   "mt.assignment.v1",
   "mt.lastResult.v1",
   "mt.progress.v1",
@@ -59,10 +62,35 @@ export const LEGACY_KEYS = [
   "mt.planSession.v2",
 ] as const;
 
+/**
+ * Every legacy un-namespaced key the backup format owns. The v1 list plus the
+ * un-namespaced keys session.ts's writeStored() still emits for quest /
+ * grade-override / celebrated-graduation / practice-progress state when no
+ * profile is active. Redemptions has no legacy entry on purpose — rewardStore
+ * only ever writes it namespaced (profileKey(REDEMPTIONS_NS, pid)), never
+ * un-namespaced.
+ */
+export const LEGACY_KEYS = [
+  ...LEGACY_KEYS_V1,
+  "mt.quest.v1",
+  "mt.gradeOverrides.v1",
+  "mt.celebratedGraduations.v1",
+  "mt.practiceProgress.v1",
+] as const;
+
 export interface StorageLike {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
   removeItem(key: string): void;
+  /**
+   * Optional enumeration, exactly as window.localStorage exposes it. Backup
+   * restore and purgeProfile use it to find `mt.p.<id>.*` payloads whose
+   * profile entry is gone (lost or corrupt profiles doc) — the only way to
+   * see such an id. A store without these members still works; discovery then
+   * falls back to ids derived from the profiles doc and the backup file.
+   */
+  key?(index: number): string | null;
+  readonly length?: number;
 }
 
 function defaultStorage(): StorageLike | null {
@@ -75,6 +103,59 @@ function defaultStorage(): StorageLike | null {
 function resolveStore(s?: StorageLike | null): StorageLike | null {
   if (s !== undefined) return s;
   return defaultStorage();
+}
+
+/** getItem that never throws: a locked-down browser raises SecurityError. */
+function safeGet(s: StorageLike, key: string): string | null {
+  try {
+    return s.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Every stored key, or null when this store cannot enumerate (plain object
+ * mocks; window.localStorage always can). Snapshotted into an array so
+ * removal during a sweep cannot shift the list under us.
+ */
+function listKeys(s: StorageLike): string[] | null {
+  if (typeof s.key !== "function" || typeof s.length !== "number") return null;
+  try {
+    const keys: string[] = [];
+    for (let i = 0; i < s.length; i++) {
+      const k = s.key(i);
+      if (k !== null) keys.push(k);
+    }
+    return keys;
+  } catch {
+    return null;
+  }
+}
+
+/** `mt.p.` + profile id + `.` + suffix — the per-profile key namespace. */
+const PROFILE_KEY_PREFIX = "mt.p.";
+
+/**
+ * Profile ids that own one of `suffixes`, read off the storage's own key list
+ * rather than the profiles doc — the only way to see a kid whose doc entry was
+ * lost while their payloads survived. null when the store cannot enumerate.
+ */
+function storedIdsForSuffixes(s: StorageLike, suffixes: readonly string[]): string[] | null {
+  const keys = listKeys(s);
+  if (keys === null) return null;
+  const ids: string[] = [];
+  for (const key of keys) {
+    if (!key.startsWith(PROFILE_KEY_PREFIX)) continue;
+    const rest = key.slice(PROFILE_KEY_PREFIX.length);
+    for (const suffix of suffixes) {
+      const tail = `.${suffix}`;
+      if (rest.length > tail.length && rest.endsWith(tail)) {
+        ids.push(rest.slice(0, rest.length - tail.length));
+      }
+    }
+  }
+  return ids;
 }
 
 // ---------- doc ----------
@@ -539,12 +620,9 @@ export function storageUsageNote(store?: StorageLike | null): string {
   }
   try {
     let bytes = 0;
-    // localStorage has no enumeration on StorageLike; use the real one.
-    const ls = window.localStorage;
-    for (let i = 0; i < ls.length; i++) {
-      const k = ls.key(i);
-      if (!k || !k.startsWith("mt.")) continue;
-      bytes += (k.length + (ls.getItem(k)?.length ?? 0)) * 2;
+    for (const k of listKeys(s) ?? []) {
+      if (!k.startsWith("mt.")) continue;
+      bytes += (k.length + (safeGet(s, k)?.length ?? 0)) * 2;
     }
     const kb = Math.max(1, Math.round(bytes / 1024));
     return `Using about ${kb}KB on this device (browsers allow ~5MB). Photos and progress save on this device only — export a backup so an iPad wipe can't erase them!`;
@@ -588,7 +666,7 @@ export function migrateLegacyOnce(
     let hasLegacy = false;
     const payloads: Array<[string, string]> = [];
     for (const k of LEGACY_KEYS) {
-      const v = s.getItem(k);
+      const v = safeGet(s, k);
       if (v !== null) {
         hasLegacy = true;
         payloads.push([k, v]);
@@ -616,18 +694,28 @@ export function migrateLegacyOnce(
 
 // ---------- backup: export JSON download + import restore ----------
 
+/** Current backup format version. v1 files still import (see parseBackup). */
+export const BACKUP_VERSION = 2 as const;
+
 export interface BackupDoc {
   kind: "mathtutor-backup";
-  version: 1;
+  /** 1 = pre-globals, fewer suffixes; 2 = every managed key + parent globals. */
+  version: 1 | 2;
   exportedAt: number;
   profiles: ProfilesDoc;
   /** Namespaced payloads per profile id: key suffix -> raw JSON string. */
   data: Record<string, Record<string, string>>;
-  /** Legacy keys snapshot (for pre-migration restores). */
+  /** Legacy un-namespaced keys snapshot (for pre-migration restores). */
   legacy: Record<string, string>;
+  /**
+   * Parent-global stores (not per-kid): full localStorage key -> raw JSON
+   * string. Absent on v1 files; always written (possibly empty) on v2.
+   */
+  globals: Record<string, string>;
 }
 
-const BACKUP_SUFFIXES = [
+/** Per-kid namespaced suffixes the v1 backup format round-trips. */
+export const BACKUP_SUFFIXES_V1 = [
   "assignment.v1",
   "lastResult.v1",
   "progress.v1",
@@ -636,30 +724,98 @@ const BACKUP_SUFFIXES = [
   "planSession.v2",
 ] as const;
 
+/**
+ * Every per-kid namespaced suffix the current format round-trips. Each string
+ * is the EXACT suffix its writer passes through profileKey():
+ *   quest.v1 / gradeOverrides.v1 / celebratedGraduations.v1 / practiceProgress.v1
+ *                                                            — src/lib/session.ts
+ *   redemptions.v1 (REDEMPTIONS_NS)                          — src/components/admin/rewardStore.ts
+ */
+export const BACKUP_SUFFIXES = [
+  ...BACKUP_SUFFIXES_V1,
+  "quest.v1",
+  "gradeOverrides.v1",
+  "celebratedGraduations.v1",
+  "practiceProgress.v1",
+  "redemptions.v1",
+] as const;
+
+/**
+ * Parent-authored global stores (one per device, not per kid). Losing
+ * mathtutor.rewards.v1 means re-entering every prize; mathtutor.admin.v1 is
+ * the grown-up dashboard state. Only these keys are ever cleared or written
+ * by the backup's globals handling.
+ */
+export const BACKUP_GLOBAL_KEYS = [
+  "mathtutor.rewards.v1",
+  "mathtutor.admin.v1",
+] as const;
+
 export function exportBackup(store?: StorageLike | null, now = Date.now()): BackupDoc {
   const s = resolveStore(store);
   const doc = loadProfiles(s);
   const data: Record<string, Record<string, string>> = {};
   const legacy: Record<string, string> = {};
+  const globals: Record<string, string> = {};
   if (s) {
     for (const p of doc.profiles) {
       const per: Record<string, string> = {};
       for (const suffix of BACKUP_SUFFIXES) {
-        const v = s.getItem(profileKey(suffix, p.id));
+        const v = safeGet(s, profileKey(suffix, p.id));
         if (v !== null) per[suffix] = v;
       }
       if (Object.keys(per).length > 0) data[p.id] = per;
     }
     for (const k of LEGACY_KEYS) {
-      const v = s.getItem(k);
+      const v = safeGet(s, k);
       if (v !== null) legacy[k] = v;
     }
+    for (const k of BACKUP_GLOBAL_KEYS) {
+      const v = safeGet(s, k);
+      if (v !== null) globals[k] = v;
+    }
   }
-  return { kind: "mathtutor-backup", version: 1, exportedAt: now, profiles: doc, data, legacy };
+  return {
+    kind: "mathtutor-backup",
+    version: BACKUP_VERSION,
+    exportedAt: now,
+    profiles: doc,
+    data,
+    legacy,
+    globals,
+  };
 }
 
 export function backupToJson(backup: BackupDoc): string {
   return JSON.stringify(backup);
+}
+
+/**
+ * `key -> raw JSON string`, dropping anything else. `Object.entries` on a
+ * string iterates characters, so an unvalidated file could otherwise inject
+ * one junk key per character (mt.p.kid-1.0 … mt.p.kid-1.12).
+ */
+function stringRecord(v: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  // `as Record<string, unknown>` after a real object check: Object.entries on
+  // an `object` only types cleanly through the generic index-signature overload.
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return out;
+  for (const [k, value] of Object.entries(v as Record<string, unknown>)) {
+    if (typeof value === "string") out[k] = value;
+  }
+  return out;
+}
+
+/** `profile id -> { suffix -> raw JSON string }`, dropping malformed entries. */
+function payloadRecord(v: unknown): Record<string, Record<string, string>> {
+  const out: Record<string, Record<string, string>> = {};
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return out;
+  for (const [id, per] of Object.entries(v as Record<string, unknown>)) {
+    if (typeof per !== "object" || per === null || Array.isArray(per)) continue;
+    const inner = stringRecord(per);
+    if (Object.keys(inner).length > 0) out[id] = inner;
+  }
+  return out;
 }
 
 export function parseBackup(json: string): BackupDoc {
@@ -680,11 +836,52 @@ export function parseBackup(json: string): BackupDoc {
   if (!Array.isArray(pr.profiles)) {
     throw new Error("That backup file doesn't look right — is it a MathTutor backup?");
   }
-  return parsed as BackupDoc;
+  // v1 files import fine (no globals, fewer suffixes). Anything else is from a
+  // newer app than this one — importing it would silently drop whatever it
+  // added, so stop with a clear (still kid-safe) message instead.
+  if (r.version !== 1 && r.version !== 2) {
+    throw new Error(
+      "This backup was made by a newer version of MathTutor. Please update the app, then try again!",
+    );
+  }
+  // Payload maps are normalised here, not rejected: a hand-edited file with a
+  // malformed entry still restores everything that IS well formed, and the
+  // malformed entry can never reach storage.
+  return {
+    kind: "mathtutor-backup",
+    version: r.version,
+    exportedAt: typeof r.exportedAt === "number" ? r.exportedAt : Date.now(),
+    profiles: r.profiles as ProfilesDoc,
+    data: payloadRecord(r.data),
+    legacy: stringRecord(r.legacy),
+    globals: stringRecord(r.globals),
+  };
 }
 
-/** Restore a backup: replaces profiles + namespaced payloads + legacy keys. */
-export function importBackup(store: StorageLike | null | undefined, backup: BackupDoc): ProfilesDoc {
+/**
+ * Restore a backup as a true REPLACE, not a merge. The WRITE phase runs first
+ * and the clear phase runs only when every write succeeded: a quota-blocked
+ * iPad must never lose the keys it already had in exchange for payloads that
+ * could not be written. Once the writes land, every key this backup's format
+ * version owns — per-kid namespaced suffixes, legacy un-namespaced keys, and
+ * (v2) the parent globals — is cleared, so play that happened after the export
+ * is wiped instead of surviving as hybrid state. Keys the format does NOT own
+ * (sound-muted, install-dismissed, mt.redemptions.legacyAdopted.v1,
+ * mt.progress.openDomains, mathtutor.admin.unlocked, …) are never touched.
+ *
+ * `mt.profiles.migrated.v1` is the one deliberate exception: it is always set
+ * to "1". Every app writer stores exactly "1" (migrateLegacyOnce and this
+ * import), so no state is lost, and skipping it would let migrateLegacyOnce
+ * re-adopt legacy keys over freshly imported state.
+ *
+ * `failed` lists every key whose write or clear raised (quota, private mode, a
+ * locked-down browser). Empty = the replace completed; non-empty = storage
+ * still holds part of the old state, so the UI must not claim success.
+ */
+export function importBackupReport(
+  store: StorageLike | null | undefined,
+  backup: BackupDoc,
+): { doc: ProfilesDoc; failed: string[] } {
   const s = resolveStore(store);
   const profiles = (backup.profiles.profiles ?? []).map(sanitizeProfile).filter(
     (p): p is Profile => p !== null,
@@ -707,32 +904,142 @@ export function importBackup(store: StorageLike | null | undefined, backup: Back
         ? Math.floor(backup.profiles.nextId)
         : maxN + 1,
   };
-  if (s) {
-    saveProfiles(doc, s);
-    for (const [profileId, per] of Object.entries(backup.data ?? {})) {
-      for (const [suffix, value] of Object.entries(per ?? {})) {
-        try {
-          s.setItem(profileKey(suffix, profileId), value);
-        } catch {
-          /* keep going */
-        }
-      }
-    }
-    for (const [k, v] of Object.entries(backup.legacy ?? {})) {
-      try {
-        s.setItem(k, v);
-      } catch {
-        /* keep going */
-      }
-    }
-    // Imported state counts as migrated — never re-adopt over it.
+  if (!s) return { doc, failed: [] };
+
+  // A v1 file never captured the newer suffixes or the parent globals, so the
+  // v1 format does not own them — touching only what each format owns keeps
+  // restore deterministic without destroying data the file couldn't represent.
+  const isV1 = backup.version === 1;
+  const ownedSuffixes: readonly string[] = isV1 ? BACKUP_SUFFIXES_V1 : BACKUP_SUFFIXES;
+  const ownedLegacyKeys: readonly string[] = isV1 ? LEGACY_KEYS_V1 : LEGACY_KEYS;
+
+  const failed: string[] = [];
+  /** Keys whose value this restore owned; the clear phase must not delete them. */
+  const replaced = new Set<string>();
+  const write = (key: string, value: string): void => {
     try {
-      s.setItem(MIGRATION_FLAG_KEY, "1");
+      s.setItem(key, value);
+      replaced.add(key);
     } catch {
-      /* noop */
+      failed.push(key);
+    }
+  };
+  const remove = (key: string): void => {
+    try {
+      s.removeItem(key);
+    } catch {
+      failed.push(key);
+    }
+  };
+
+  // ---- write phase, strictly before any clear (so failure is non-destructive)
+  // Ids already on the device keep their payloads: a v1 file cannot represent
+  // the newer suffixes, and must not wipe them.
+  const deviceIds = loadProfiles(s).profiles.map((p) => p.id);
+  const deviceIdSet = new Set<string>(deviceIds);
+  const restoredIds = profiles.map((p) => p.id);
+  const restoredIdSet = new Set<string>(restoredIds);
+
+  write(PROFILE_KEY, JSON.stringify(doc));
+  const ownedSuffixSet = new Set<string>(ownedSuffixes);
+  for (const [profileId, per] of Object.entries(backup.data ?? {})) {
+    // An id in neither the restored doc nor this device is orphan data from a
+    // hand-edited file — never resurrect it.
+    if (!restoredIdSet.has(profileId) && !deviceIdSet.has(profileId)) continue;
+    for (const [suffix, value] of Object.entries(per ?? {})) {
+      if (!ownedSuffixSet.has(suffix) || typeof value !== "string") continue;
+      write(profileKey(suffix, profileId), value);
     }
   }
-  return doc;
+  const ownedLegacySet = new Set<string>(ownedLegacyKeys);
+  for (const [k, v] of Object.entries(backup.legacy ?? {})) {
+    // Only ever write the keys the format owns — a hand-edited file must not
+    // be able to inject arbitrary localStorage keys.
+    if (ownedLegacySet.has(k)) write(k, v);
+  }
+  if (!isV1) {
+    const managedGlobals = new Set<string>(BACKUP_GLOBAL_KEYS);
+    for (const [k, v] of Object.entries(backup.globals ?? {})) {
+      if (managedGlobals.has(k)) write(k, v);
+    }
+  }
+  // Imported state counts as migrated — never re-adopt over it.
+  write(MIGRATION_FLAG_KEY, "1");
+
+  // ---- clear phase (only when the replace landed in full) ------------------
+  if (failed.length === 0) {
+    // Every id the format could hold a payload for: the ids present now, the
+    // ids coming in, any id carrying data in the file, and — the case a lost
+    // profiles doc creates — every id discovered from the storage's own key
+    // list. window.localStorage can enumerate; a plain object mock cannot, and
+    // then only the doc/backup-derived ids are swept (fallback).
+    const idsToSweep = new Set<string>(deviceIds);
+    for (const id of restoredIds) idsToSweep.add(id);
+    for (const id of Object.keys(backup.data ?? {})) idsToSweep.add(id);
+    for (const id of storedIdsForSuffixes(s, ownedSuffixes) ?? []) idsToSweep.add(id);
+
+    for (const id of Array.from(idsToSweep)) {
+      for (const suffix of ownedSuffixes) {
+        const key = profileKey(suffix, id);
+        if (!replaced.has(key)) remove(key);
+      }
+    }
+    for (const k of ownedLegacyKeys) {
+      if (!replaced.has(k)) remove(k);
+    }
+    if (!isV1) {
+      for (const k of BACKUP_GLOBAL_KEYS) {
+        if (!replaced.has(k)) remove(k);
+      }
+    }
+  }
+
+  return { doc, failed };
+}
+
+/** Restore a backup. See importBackupReport for which keys failed. */
+export function importBackup(store: StorageLike | null | undefined, backup: BackupDoc): ProfilesDoc {
+  return importBackupReport(store, backup).doc;
+}
+
+/**
+ * Delete a player for real: drop the doc entry AND every `mt.p.<id>.*`
+ * payload, so the delete UI's promise ("removing a player erases their
+ * progress on this device") is true. Enumeration covers every suffix under
+ * that id, including ones this build does not know about; a non-enumerating
+ * store falls back to the managed BACKUP_SUFFIXES set.
+ *
+ * Non-destructive: if any payload removal fails, the doc entry is left in
+ * place — storage must never keep progress whose profile is gone, or the next
+ * kid created with that id would inherit it. Never throws.
+ */
+export function purgeProfile(id: string, store?: StorageLike | null): ProfilesDoc {
+  const s = resolveStore(store);
+  const doc = loadProfiles(s);
+  const next = removeProfile(doc, id);
+  if (!s) return next;
+  const prefix = `${PROFILE_KEY_PREFIX}${id}.`;
+  const enumerated = listKeys(s);
+  const keys =
+    enumerated === null
+      ? BACKUP_SUFFIXES.map((suffix) => profileKey(suffix, id))
+      : enumerated.filter((k) => k.startsWith(prefix));
+  let cleared = true;
+  for (const k of keys) {
+    try {
+      s.removeItem(k);
+    } catch {
+      cleared = false;
+    }
+  }
+  if (!cleared) return doc;
+  try {
+    s.setItem(PROFILE_KEY, JSON.stringify(next));
+  } catch {
+    // Payloads are already gone; report the doc the device actually holds.
+    return doc;
+  }
+  return next;
 }
 
 export function downloadBackup(filename: string, json: string): void {

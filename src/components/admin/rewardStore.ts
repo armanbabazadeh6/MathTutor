@@ -66,6 +66,34 @@ export const REDEMPTIONS_NS = "redemptions.v1";
 /** "Pending" for the parent inbox = canonical "requested" status. */
 export const PENDING_STATUS: RedemptionStatus = "requested";
 
+/**
+ * Reward input ceilings, enforced in validateRewardInput, on every write and
+ * again when a stored catalog is loaded — the kid's list can never render a
+ * title or cost outside these bounds. The form's maxLength/max attributes are
+ * only the first line of defence.
+ */
+export const MAX_REWARD_TITLE = 60;
+/** 20× the shipped example reward (500 pts): far above real saving, far below nonsense. */
+export const MAX_REWARD_COST = 10_000;
+export const MAX_REWARD_STREAK = 365;
+
+/** Trimmed, never longer than MAX_REWARD_TITLE. */
+function clampTitle(raw: string): string {
+  return raw.trim().slice(0, MAX_REWARD_TITLE);
+}
+
+/** Whole points inside 1..MAX_REWARD_COST. */
+function clampCost(raw: number): number {
+  if (!Number.isFinite(raw)) return 1;
+  return Math.min(MAX_REWARD_COST, Math.max(1, Math.round(raw)));
+}
+
+/** Whole days inside 0..MAX_REWARD_STREAK. */
+function clampStreak(raw: number): number {
+  if (!Number.isFinite(raw)) return 0;
+  return Math.min(MAX_REWARD_STREAK, Math.max(0, Math.round(raw)));
+}
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -102,15 +130,28 @@ function seedCatalog(): Reward[] {
   ];
 }
 
-function isReward(v: unknown): v is Reward {
-  if (!v || typeof v !== "object") return false;
+/**
+ * Coerce one stored catalog row into the input ceilings. A payload written
+ * before the ceilings existed (or in devtools) is clamped here, so the kid's
+ * screen can never render a 200-character title or a 999999999999 cost.
+ */
+function normalizeReward(v: unknown): Reward | null {
+  if (!v || typeof v !== "object") return null;
   const r = v as Record<string, unknown>;
-  return (
-    typeof r.id === "string" &&
-    typeof r.title === "string" &&
-    typeof r.pointCost === "number" &&
-    typeof r.active === "boolean"
-  );
+  if (typeof r.id !== "string" || typeof r.title !== "string") return null;
+  if (typeof r.pointCost !== "number") return null;
+  const row: Reward = {
+    id: r.id,
+    title: clampTitle(r.title) || "Reward",
+    description: typeof r.description === "string" ? r.description : "",
+    pointCost: clampCost(r.pointCost),
+    minStreakDays: clampStreak(typeof r.minStreakDays === "number" ? r.minStreakDays : 0),
+    icon: typeof r.icon === "string" ? r.icon : "🎁",
+    active: r.active === true,
+  };
+  if (r.example === true) row.example = true;
+  if (typeof r.archivedAt === "string") row.archivedAt = r.archivedAt;
+  return row;
 }
 
 function isRedemption(v: unknown): v is Redemption {
@@ -203,7 +244,22 @@ function loadInitial(): RewardState {
     const parsed = JSON.parse(raw) as Partial<RewardState>;
     // Stored state wins as-is, even with an empty catalog (never reseed).
     if (Array.isArray(parsed.catalog) && Array.isArray(parsed.redemptions)) {
-      const catalog = parsed.catalog.filter(isReward);
+      const catalog = parsed.catalog
+        .map(normalizeReward)
+        .filter((r): r is Reward => r !== null);
+      // Self-heal: a payload written before the ceilings (or by hand) is
+      // clamped in memory above; write the clamped rows back so the bad value
+      // cannot come back on the next read either.
+      if (JSON.stringify(catalog) !== JSON.stringify(parsed.catalog)) {
+        try {
+          window.localStorage.setItem(
+            STORAGE_KEY,
+            JSON.stringify({ ...parsed, catalog, version: 1 }),
+          );
+        } catch {
+          // Storage full/blocked: the in-memory clamp still holds.
+        }
+      }
       const globalRedemptions = parsed.redemptions.filter(isRedemption);
       const pid = activePid();
       if (!pid) return withLedger(catalog, globalRedemptions);
@@ -295,15 +351,25 @@ export interface RewardInput {
   description?: string;
 }
 
-/** Shared validation: non-empty title, positive integer cost, streak >= 0. */
+/** Shared validation: non-empty title, positive integer cost, streak >= 0, all within the ceilings. */
 export function validateRewardInput(input: RewardInput): string | null {
-  if (!input.title.trim()) return "Title is required.";
+  const title = input.title.trim();
+  if (!title) return "Title is required.";
+  if (title.length > MAX_REWARD_TITLE) {
+    return `Titles can be at most ${MAX_REWARD_TITLE} characters.`;
+  }
   if (!Number.isInteger(input.pointCost) || input.pointCost <= 0) {
     return "Cost must be a positive whole number of points.";
+  }
+  if (input.pointCost > MAX_REWARD_COST) {
+    return `Costs can be at most ${MAX_REWARD_COST.toLocaleString()} points.`;
   }
   const streak = input.minStreakDays ?? 0;
   if (!Number.isInteger(streak) || streak < 0) {
     return "Streak requirement must be 0 or more days.";
+  }
+  if (streak > MAX_REWARD_STREAK) {
+    return `Streak requirements can be at most ${MAX_REWARD_STREAK} days.`;
   }
   return null;
 }
@@ -321,10 +387,10 @@ export const rewardActions = {
     if (error) return { ok: false, error };
     const item: Reward = {
       id: newId("reward"),
-      title: input.title.trim(),
+      title: clampTitle(input.title),
       description: input.description?.trim() ?? "",
-      pointCost: input.pointCost,
-      minStreakDays: input.minStreakDays ?? 0,
+      pointCost: clampCost(input.pointCost),
+      minStreakDays: clampStreak(input.minStreakDays ?? 0),
       icon: "🎁",
       active: true,
     };
@@ -349,10 +415,10 @@ export const rewardActions = {
         r.id === id
           ? {
               ...r,
-              title: input.title.trim(),
+              title: clampTitle(input.title),
               description: input.description?.trim() ?? r.description,
-              pointCost: input.pointCost,
-              minStreakDays: input.minStreakDays ?? 0,
+              pointCost: clampCost(input.pointCost),
+              minStreakDays: clampStreak(input.minStreakDays ?? 0),
             }
           : r,
       ),
@@ -369,6 +435,36 @@ export const rewardActions = {
     setState({
       ...state,
       catalog: state.catalog.map((r) => (r.id === id ? { ...r, active } : r)),
+    });
+  },
+
+  /**
+   * Soft delete. The row stays in the catalog so every past redemption keeps
+   * resolving its title, but it is inactive (gone from the kid's list) and
+   * archivedAt moves it to the parent's "Removed" shelf. A hard delete would
+   * erase the title of each historical redemption instead.
+   */
+  archiveReward(id: string): void {
+    syncProfileLedger();
+    setState({
+      ...state,
+      catalog: state.catalog.map((r) =>
+        r.id === id ? { ...r, active: false, archivedAt: nowIso() } : r,
+      ),
+    });
+  },
+
+  /** Undo a soft delete: back in the catalog and available to the kid again. */
+  restoreReward(id: string): void {
+    syncProfileLedger();
+    setState({
+      ...state,
+      catalog: state.catalog.map((r) => {
+        if (r.id !== id) return r;
+        const restored: Reward = { ...r, active: true };
+        delete restored.archivedAt;
+        return restored;
+      }),
     });
   },
 

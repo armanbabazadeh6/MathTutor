@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef } from "react";
+import { createPortal } from "react-dom";
 import type { ReactNode } from "react";
 
 /**
@@ -70,15 +71,22 @@ export function Sheet({
     };
   }, [onClose]);
 
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-end justify-center sm:items-center"
-      role="presentation"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div aria-hidden className="mt-scrim absolute inset-0 bg-ink/45 backdrop-blur-[2px]" />
+  // A modal must not be laid out inside an ancestor that carries a transform.
+  // `.mt-route` (the page-transition wrapper) applies one while its entrance
+  // animation is pending, which turns it into the containing block for
+  // `position: fixed` — the sheet then lands at document coordinates (measured
+  // top 3419px against an 844px viewport) and is unreachable while this
+  // component has already locked body scroll. Portalling to <body> removes the
+  // whole class of problem.
+  const canPortal = typeof document !== "undefined";
+
+  const content = (
+    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
+      <div
+        aria-hidden
+        className="mt-scrim absolute inset-0 bg-ink/45 backdrop-blur-[2px]"
+        onMouseDown={onClose}
+      />
       <div
         ref={panelRef}
         role="dialog"
@@ -99,4 +107,6 @@ export function Sheet({
       </div>
     </div>
   );
+
+  return canPortal ? createPortal(content, document.body) : content;
 }

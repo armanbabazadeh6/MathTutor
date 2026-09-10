@@ -65,7 +65,12 @@ export default function PracticePage() {
   }
 
   return (
-    <main className="mt-shell mt-shell-nav flex min-h-screen flex-col justify-between gap-5 pt-6">
+    <main
+      className="mt-shell flex h-screen flex-col gap-1 overflow-y-auto pt-4"
+      /* 100dvh keeps the shell the real visible height on mobile; the plain
+         h-screen above is the fallback where dvh is unsupported. */
+      style={{ height: "100dvh" }}
+    >
       <ProblemPlayer
         assignment={assignment}
         onComplete={(result) => {

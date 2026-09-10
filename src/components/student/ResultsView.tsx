@@ -24,7 +24,9 @@ export function ResultsView({
   newBadges: string[];
 }) {
   const router = useRouter();
-  const perfect = result.solved === result.total;
+  // A perfect run means every problem was right on the first try. Counting
+  // solved problems would call a revealed-then-relearned run perfect.
+  const perfect = result.total > 0 && result.correctFirst === result.total;
   const celebrate = perfect || newBadges.length > 0;
   const pose = perfect ? "cheer" : result.solved >= result.total / 2 ? "happy" : "think";
   // Tactile-only: buzz once on mount for celebrations. No state, no behavior change.
@@ -69,7 +71,7 @@ export function ResultsView({
         </div>
 
         {celebrate ? (
-          <ConfettiBurst label={perfect ? "Every one right! Amazing!" : "New prize! Look below!"} />
+          <ConfettiBurst label={perfect ? "Every one right! Amazing!" : "New badge! Look below!"} />
         ) : null}
 
         <DuoCard
@@ -90,7 +92,12 @@ export function ResultsView({
             <div className="flex flex-wrap gap-2">
               <Badge label={`${result.accuracy}% first-try`} tone="sky" />
               <Badge label={`${progress.xp} stars total`} tone="primary" />
-              <Badge label={`${progress.sessionsCompleted} practices`} tone="mint" />
+              <Badge
+                label={`${progress.sessionsCompleted} ${
+                  progress.sessionsCompleted === 1 ? "practice" : "practices"
+                }`}
+                tone="mint"
+              />
             </div>
           </div>
         </DuoCard>
@@ -193,7 +200,7 @@ export function ResultsView({
         ) : null}
 
         {newBadges.length > 0 ? (
-          <DuoCard title="New prizes!" subtitle="You won these today" tone="mint" shine>
+          <DuoCard title="New badges!" subtitle="You won these today" tone="mint" shine>
             <div className="flex flex-wrap gap-2">
               {newBadges.map((id) => {
                 const b = badgeById(id);
@@ -205,7 +212,7 @@ export function ResultsView({
         ) : null}
 
         <div className="flex flex-col gap-3 sm:flex-row">
-          <ChunkyButton onClick={() => router.push("/")} size="lg" shine className="flex-1">
+          <ChunkyButton onClick={() => router.push("/practice")} size="lg" shine className="flex-1">
             Practice again 🚀
           </ChunkyButton>
           <ChunkyButton
@@ -225,6 +232,9 @@ export function ResultsView({
 /** Kid-facing wording for one attempt — never shaming, and never bare numbers. */
 function attemptMarker(a: ProblemAttempt): string {
   if (a.correctFirstTry) return "right first try";
+  // A problem that was revealed and then worked through the lesson is a win
+  // with help, not a try the kid can be credited for on their own.
+  if (a.solved && a.needsReteach) return "we learned it together";
   if (a.solved) return `right after ${a.attemptsUsed} tries`;
   return "we learned it together";
 }

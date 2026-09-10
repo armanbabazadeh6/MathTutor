@@ -369,14 +369,18 @@ p {
 /* ---- Motion primitives ---------------------------------------------- */
 
 /* Route transition: every navigation settles in under 300ms.
-   Fills `backwards` only — a lingering transform would turn this wrapper into
-   a containing block and break `position: fixed` sheets inside the page. */
+   NO fill mode, on purpose. `both`/`backwards` would hold the 0% keyframe's
+   `transform` while the animation is pending or if it never runs (a tab
+   backgrounded at load), and a transformed ancestor becomes the containing
+   block for `position: fixed` descendants — which silently breaks modals.
+   Without fill the element sits at its natural state until the animation
+   actually starts. */
 @keyframes mt-route-in {
   0% { transform: translateY(10px); opacity: 0; }
   100% { transform: translateY(0); opacity: 1; }
 }
 .mt-route {
-  animation: mt-route-in var(--dur-slow) var(--ease-out-soft) backwards;
+  animation: mt-route-in var(--dur-slow) var(--ease-out-soft);
 }
 
 /* Reward moments: XP number flies up and fades. */

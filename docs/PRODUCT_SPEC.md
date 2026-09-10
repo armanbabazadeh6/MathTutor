@@ -22,9 +22,11 @@ plus the parent/teacher who owns the device and reviews progress in `/admin`.
 
 ## Grown-up surfaces
 
-- `/admin` (PIN speed bump, not a security boundary) shows every kid's assignments, points,
-  prize ledger and analytics, and can rebuild the day's quest with a reason and lock/unlock
-  grade-5 areas per kid.
+- `/admin` (PIN speed bump, not a security boundary) reads the **selected kid's** real saved
+  practice — current assignment, last finished session, progress, plan levels/mastery, points and
+  prize ledger — with a kid switcher defaulting to the active profile; a kid with nothing saved
+  shows an explicit empty state. It can rebuild the day's quest with a reason and lock/unlock
+  grade-5 areas per kid, and Lock returns the tab to the PIN gate.
 - The prize **catalog** is parent-global; each kid's **redemption history** is per-profile.
 
 ## Non-goals (v1)

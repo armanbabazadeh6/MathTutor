@@ -16,7 +16,7 @@ quest and prize ledger lives in `localStorage` on the device.
 | `/rewards`          | `rewards/page.tsx`          | Star goals, badges, grown-up prize catalog and redemption requests.                                             |
 | `/profiles`         | `profiles/page.tsx`         | Kid picker: create/select/delete profiles, photo, backup export/import.                                         |
 | `/profile`          | `profile/page.tsx`          | Active-kid settings and backup.                                                                                 |
-| `/admin`            | `admin/page.tsx`            | Parent dashboard (analytics, quest controls, reward manager) behind `AdminGate`.                                |
+| `/admin`            | `admin/page.tsx`            | Per-kid parent dashboard (real saved practice, quest controls, reward manager) behind `AdminGate`.              |
 
 Framework files:
 
@@ -49,13 +49,13 @@ Framework files:
 - `duo/` — the design system: `ChunkyButton`, `Card`, `Character` (original blob mascot), `BottomNav`/`StudentNav`, `ProgressBar`, `GemCounter`, `HeartBar`, `StreakFlame`, `EmptyState`, `Alert`, `LessonPath`, `ErrorGate`.
 - `effects/` — CSS-only polish: `Celebration`, `ConfettiBurst`, `CountUp`, `LevelUpOverlay`, `PageFade`, `ProgressRing`, `Shake`, `Skeleton`, `SoundToggle`, `Streak`, `InstallPrompt`. `prefers-reduced-motion` disables the motion.
 - `student/` — `ProblemPlayer`, `ResultsView`, `TeachView`, `RewardsView`, `QuickStart`, `TopicGrid`, `BackButton`.
-- `admin/` — `AdminGate` (PIN), `Dashboard`, `QuestControls`, `RewardManager`, `store.ts` (admin state + `ADMIN_PIN`), `rewardStore.ts` (parent-global catalog + per-kid redemption ledger).
+- `admin/` — `AdminGate` (PIN), `Dashboard` (reads the selected kid's real payloads), `QuestControls`, `RewardManager`, `store.ts` (gate state + `ADMIN_PIN`), `rewardStore.ts` (parent-global catalog + per-kid redemption ledger).
 - `onboarding/WelcomeHero.tsx` and `ui/` primitives (Badge, Button, Card, ProgressBar, Sheet).
 
 ## Persistence contract
 
 - Per-kid keys: `mt.p.<kid-id>.<suffix>` for `assignment.v1`, `lastResult.v1`, `progress.v1`, `newBadges.v1`, `points.v1`, `planSession.v2`, `quest.v1`, `gradeOverrides.v1`, `celebratedGraduations.v1`, `redemptions.v1`.
-- Parent-global keys: `mt.profiles.v1`, `mt.profiles.migrated.v1`, `mathtutor.rewards.v1` (prize catalog), `mathtutor.admin.v1` (demo admin state), `mathtutor:sound-muted`, `mathtutor:install-dismissed`.
+- Parent-global keys: `mt.profiles.v1`, `mt.profiles.migrated.v1`, `mathtutor.rewards.v1` (prize catalog), `mathtutor:sound-muted`, `mathtutor:install-dismissed`. `mathtutor.admin.v1` (the retired demo admin doc) is no longer written by any screen; it is still backed up if an old device has one.
 - Pre-profile `mt.*` keys are adopted into the first profile exactly once (`migrateLegacyOnce`) and kept as a backup. `exportBackup()` in `src/lib/profile/store.ts` covers 6 of the 10 per-kid suffixes today — see the README for the gap.
 
 ## Security posture

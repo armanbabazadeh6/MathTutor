@@ -28,10 +28,12 @@ import {
   loadAssignment,
   loadPlanSession,
   loadProgress,
+  loadUnfinishedRun,
   saveAssignment,
   startDailyQuest,
 } from "@/lib/session";
-import type { Quest } from "@/lib/session";
+import type { Quest, UnfinishedRun } from "@/lib/session";
+import { matchSkillsFromText } from "@/lib/topics";
 import { getActiveProfile, loadProfiles, migrateLegacyOnce } from "@/lib/profile/store";
 import { SKILL_DOMAINS, SKILLS } from "@/lib/skills";
 import type { SkillDomain } from "@/lib/skills";
@@ -65,13 +67,15 @@ export default function Home() {
   const router = useRouter();
   const [selected, setSelected] = useState<SkillDomain[]>(["operations-algebraic", "fractions"]);
   const [customTopic, setCustomTopic] = useState("");
-  const [error, setError] = useState("");
+  const [notice, setNotice] = useState<{ tone: "error" | "warn"; message: string } | null>(null);
   const [extraOpen, setExtraOpen] = useState(false);
   const [sheet, setSheet] = useState<SheetTarget | null>(null);
   const [quest, setQuest] = useState<Quest | null>(null);
   const [questDone, setQuestDone] = useState(false);
   const [questResumable, setQuestResumable] = useState(false);
   const [questFailed, setQuestFailed] = useState(false);
+  /** The run the kid left part-done: the single source of the "left" count. */
+  const [run, setRun] = useState<UnfinishedRun | null>(null);
   // Entry gate: legacy progress migrates once, then kids without an active
   // profile land on the /profiles picker. Switching kids in /profiles pushes
   // back here, remounting Home so progress/plan/points reload for that kid.
@@ -97,8 +101,9 @@ export default function Home() {
 
   /**
    * Loads today's quest plus its two other states: resumable (the saved
-   * assignment IS this quest) and done (the quest's bonus was already paid).
-   * A throw means storage is unavailable, which renders as the empty state.
+   * assignment IS this quest) and done (the quest's bonus was already paid),
+   * together with the one unfinished-run record Today reports. A throw means
+   * storage is unavailable, which renders as the empty state.
    */
   const loadQuest = useCallback(() => {
     try {
@@ -107,9 +112,11 @@ export default function Home() {
       setQuestDone(isQuestDoneToday(q.id));
       const saved = loadAssignment();
       setQuestResumable(!!saved && saved.id === `${QUEST_ASSIGNMENT_PREFIX}${q.id}`);
+      setRun(loadUnfinishedRun());
       setQuestFailed(false);
     } catch {
       setQuest(null);
+      setRun(null);
       setQuestFailed(true);
     }
   }, []);
@@ -172,18 +179,40 @@ export default function Home() {
   }, [quest]);
 
   const toggle = (d: SkillDomain) => {
-    setError("");
+    setNotice(null);
     setSelected((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]));
   };
 
   const start = () => {
-    if (selected.length === 0 && !customTopic.trim()) {
-      setError("Pick at least one topic, or type what you learned!");
+    const typed = customTopic.trim();
+    if (selected.length === 0 && !typed) {
+      setNotice({ tone: "error", message: "Pick at least one topic, or type what you learned!" });
+      return;
+    }
+    // Free text is a real topic, not decoration: match it against the skill
+    // registry and serve THOSE skills, named for what the kid typed. A miss
+    // says so instead of quietly drilling something unrelated.
+    if (typed) {
+      const match = matchSkillsFromText(typed);
+      if (!match) {
+        setNotice({
+          tone: "warn",
+          message:
+            "We couldn't find that one — pick a topic above, or try a word like 'fractions'.",
+        });
+        return;
+      }
+      const assignment = generateAssignment(selected, typed, 10, undefined, {
+        skillIds: match.skillIds,
+        label: match.label,
+      });
+      saveAssignment(assignment);
+      router.push("/practice");
       return;
     }
     // Creates the assignment locally via the math composer in session.ts.
     // NOTE (future DB persist): also POST the assignment to supabase here.
-    const assignment = generateAssignment(selected, customTopic, 10);
+    const assignment = generateAssignment(selected, "", 10);
     saveAssignment(assignment);
     router.push("/practice");
   };
@@ -266,16 +295,30 @@ export default function Home() {
   const sheetPicked = sheetDomain ? selected.includes(sheetDomain.id) : false;
   const hour = new Date().getHours();
   const greet = hour < 12 ? "Morning" : hour < 17 ? "Afternoon" : "Evening";
-  const questCta = questDone
-    ? "Play it again 🔁"
-    : questResumable
+  // The quest hero owns today's run only when the queued assignment IS today's
+  // quest; otherwise the queued run is extra practice and the resume row owns
+  // it. The count comes from the resume record, so completion is never claimed
+  // while problems remain.
+  const questRun =
+    quest && run && run.assignment.id === `${QUEST_ASSIGNMENT_PREFIX}${quest.id}` ? run : null;
+  const questRunLeft = questRun ? questRun.remaining : 0;
+  const questComplete = questDone && questRunLeft === 0;
+  const questResumePinned = questResumable && !questComplete;
+  const questCta =
+    questRunLeft > 0 || questResumePinned
       ? "Keep going ▶"
-      : "Start today's quest 🚀";
-  const questNote = questDone
+      : questDone
+        ? "Play it again 🔁"
+        : "Start today's quest 🚀";
+  const questNote = questComplete
     ? "All finished — every problem solved. See you tomorrow! 🎉"
-    : questResumable
-      ? "You already started this one. Jump right back in!"
-      : "Picked just for you, and it stays the same all day.";
+    : questRunLeft > 0
+      ? `You already started this one — ${questRunLeft} ${
+          questRunLeft === 1 ? "problem" : "problems"
+        } left. Jump right back in!`
+      : questResumePinned
+        ? "You already started this one. Jump right back in!"
+        : "Picked just for you, and it stays the same all day.";
 
   if (!ready) {
     return (
@@ -311,15 +354,15 @@ export default function Home() {
           {quest ? (
             <DuoCard
               tone="sunny"
-              eyebrow={questDone ? "Quest complete" : "Today's quest"}
+              eyebrow={questComplete ? "Quest complete" : "Today's quest"}
               title={quest.questTitle}
               subtitle={`${quest.items.length} problems · +${quest.bonusRewardPts} bonus points`}
               icon={
                 <Character
-                  pose={questDone ? "cheer" : "happy"}
+                  pose={questComplete ? "cheer" : "happy"}
                   size={88}
                   label={
-                    questDone
+                    questComplete
                       ? "Mascot cheering your finished quest"
                       : "Mascot ready for today's quest"
                   }
@@ -354,8 +397,10 @@ export default function Home() {
             </DuoCard>
           )}
 
-          {/* Unfinished extra-practice run only — never competes with the quest */}
-          <QuickStart />
+          {/* One honest unfinished signal: the resume row carries any run the
+              quest hero is not already showing (extra practice, or a quest run
+              when no quest card could load). */}
+          {run && !questRun ? <QuickStart /> : null}
 
           {/* Winding path: real plan state, two-tap confirm in the shared Sheet */}
           <DuoCard title="Today's path" subtitle="Tap a circle, then say go!">
@@ -392,15 +437,16 @@ export default function Home() {
                       <input
                         id="custom-topic"
                         value={customTopic}
+                        maxLength={60}
                         onChange={(e) => {
-                          setError("");
+                          setNotice(null);
                           setCustomTopic(e.target.value);
                         }}
                         placeholder="Example: long division with remainders…"
                         className="touch-target mt-2 w-full rounded-2xl border-2 border-line bg-white px-5 py-3 text-kid-lg outline-none focus:border-primary"
                       />
                     </div>
-                    {error ? <Alert tone="error">{error}</Alert> : null}
+                    {notice ? <Alert tone={notice.tone}>{notice.message}</Alert> : null}
                     <p className="text-kid-xs font-semibold text-muted">{QUEST_ASSIGNMENT_NOTE}</p>
                     <ChunkyButton onClick={start} size="lg" fullWidth shine>
                       Start extra practice · 10 problems 🚀

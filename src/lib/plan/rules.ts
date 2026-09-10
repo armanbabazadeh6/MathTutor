@@ -45,6 +45,15 @@ export interface ApplyRulesInput {
   mastery?: number;
   /** Chronological outcomes for THIS skill only (oldest first). */
   recent: SkillHistoryEntry[];
+  /**
+   * The entries in `recent` that `mastery` has not folded yet — normally just
+   * the entry being recorded. Mastery folds over these only, so persisting the
+   * blended value and feeding it back stays single-fold on the full history
+   * (promotion/demotion windows still see all of `recent`). Omit it for a
+   * one-shot evaluation of a fresh history (`mastery` unset/stale): the whole
+   * `recent` list is then folded, which is the same thing for one call.
+   */
+  newOutcomes?: SkillHistoryEntry[];
   /** Streak length observed at the last promotion; the run must grow a full PROMOTION_STREAK past it. */
   promotedAtStreak?: number;
   /** Exhausted-in-window count observed at the last demotion; guards repeat demotion. */
@@ -83,9 +92,14 @@ export function exhaustedInWindow(recent: SkillHistoryEntry[], window = RECENT_W
 }
 
 /**
- * Blend recent outcomes into mastery by folding the shared `updateMastery`
- * step over each entry in order. One function, one scale: rules and the rest
- * of the app share the same 0-100 model.
+ * Blend outcomes into mastery by folding the shared `updateMastery` step over
+ * each entry in order. One function, one scale: rules and the rest of the app
+ * share the same 0-100 model.
+ *
+ * Each entry moves the value once, so callers must pass only the entries that
+ * have not been folded into `current` yet — folding a full history onto a
+ * mastery that already contains it double-counts (a skill hit 98% after three
+ * correct answers). `ApplyRulesInput.newOutcomes` carries that delta.
  *
  * The first-try bonus is reserved for genuinely first-try wins; any other
  * correct answer (a retry, or a hint-assisted win such as a reteach success)
@@ -123,7 +137,7 @@ export function blendMastery(current: number | undefined, recent: SkillHistoryEn
  */
 export function applyRulesForSkill(input: ApplyRulesInput): LevelUpdate {
   const level = clampLevel(input.level ?? DEFAULT_LEVEL);
-  const mastery = blendMastery(input.mastery, input.recent);
+  const mastery = blendMastery(input.mastery, input.newOutcomes ?? input.recent);
   const streak = trailingFirstTryStreak(input.recent);
   const exhausted = exhaustedInWindow(input.recent);
   const promotedAtStreak = Math.max(0, Math.floor(input.promotedAtStreak ?? 0));

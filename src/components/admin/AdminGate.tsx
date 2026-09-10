@@ -4,6 +4,9 @@
 // wander into parent controls. This is NOT real security: the PIN lives in
 // the client bundle and the unlock flag in sessionStorage.
 //
+// The unlock flag itself lives in ./store (ADMIN_PIN + setAdminUnlocked) so the
+// dashboard's Lock button can clear it and send this tab back to the gate.
+//
 // PRODUCTION SWAP: enforce auth server-side instead —
 //   - Supabase Auth (parent/teacher role) + middleware.ts checking the
 //     session/role before serving /admin/*,
@@ -13,32 +16,23 @@
 import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
-import { ADMIN_PIN } from "@/components/admin/store";
-
-const SESSION_KEY = "mathtutor.admin.unlocked";
+import {
+  ADMIN_PIN,
+  setAdminUnlocked,
+  useAdminUnlocked,
+} from "@/components/admin/store";
 
 export function AdminGate({ children }: { children: ReactNode }) {
-  const [open, setOpen] = useState<boolean>(() => {
-    if (typeof window === "undefined") return false;
-    try {
-      return window.sessionStorage.getItem(SESSION_KEY) === "1";
-    } catch {
-      return false;
-    }
-  });
+  const unlocked = useAdminUnlocked();
   const [pin, setPin] = useState("");
   const [error, setError] = useState(false);
 
-  if (open) return <>{children}</>;
+  if (unlocked) return <>{children}</>;
 
   function submit(): void {
     if (pin === ADMIN_PIN) {
-      try {
-        window.sessionStorage.setItem(SESSION_KEY, "1");
-      } catch {
-        // Private mode: gate still opens for this render.
-      }
-      setOpen(true);
+      setPin("");
+      setAdminUnlocked(true);
     } else {
       setError(true);
     }
@@ -66,7 +60,7 @@ export function AdminGate({ children }: { children: ReactNode }) {
             className="touch-target rounded-pill border-2 border-line bg-card px-5 text-lg tracking-widest outline-none focus:border-primary"
           />
           {error ? (
-            <p className="text-sm font-bold text-coral">Wrong PIN — try again.</p>
+            <p className="text-sm font-bold text-coralink">Wrong PIN — try again.</p>
           ) : null}
           <Button onClick={submit}>Unlock</Button>
         </div>

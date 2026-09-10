@@ -290,3 +290,87 @@ screen rebuilt, infra hardened. `npm test` 304 -> 381, all green.
 - `exportBackup()` still covers 6 of the 10 per-kid storage suffixes.
 - `/favicon.ico` direct requests 404 (icon surface is declared via `/icon.svg`).
 - `supabase/seed.sql` still seeds only the 45 grade-4 skills.
+
+## Parent dashboard: real kid data + reward guard rails (2026-09-10)
+
+### `/admin` no longer invents a kid
+
+- `src/components/admin/store.ts` is now **gate state only** (`ADMIN_PIN`, per-tab unlock flag with
+  a `useSyncExternalStore` hook, `mathtutor.admin.unlocked`). The seeded demo doc (`seed(today)`,
+  `mathtutor.admin.v1`, mastery overrides, disabled skills, notes, next-topic picks,
+  `RESET DEMO DATA`) is deleted.
+- `src/components/admin/Dashboard.tsx` reads the **selected kid's real payloads** through
+  `src/lib/session.ts` (`loadAssignment`/`loadLastResult`/`loadProgress`/`loadPlanSession`/
+  `loadPointsState`) and offers a kid switcher defaulting to the active profile. Assignment, last
+  session (solved/first-try/accuracy/stars/time/per-topic/level moves/reteach), progress + points
+  stats, per-skill level + mastery, per-topic totals and recent graded practice all come from
+  stored payloads. A kid with nothing saved renders `EmptyState` — "No practice recorded yet for
+  <name>" — and no figures at all.
+- Removed the fake `Plan tomorrow` block (56 topic checkboxes, difficulty select, regenerate),
+  the mastery-override editor, skill enable/disable toggles and session notes: none had a real
+  mechanism (the real quest rebuild + grade locks live in `QuestControls`).
+- Header copy on `/admin` describes what the screen does; the `Supabase swap stores one row per
+  assignment in admin_settings` line is gone.
+
+### Lock + reward guard rails
+
+- Visible **Lock** button clears the unlock flag and returns the tab to the PIN gate.
+- Reward input is bounded at the store, not just the DOM: `MAX_REWARD_TITLE` 60,
+  `MAX_REWARD_COST` 10,000, `MAX_REWARD_STREAK` 365 enforced in `validateRewardInput`, on every
+  write, and on load (`normalizeReward`, which writes the clamped rows back so a hand-edited
+  payload cannot come back). `maxLength`/`max` attributes mirror the same constants; form errors
+  use `Alert`.
+- Lifecycle: **Turn off** and **Remove** both confirm in the shared `Sheet`; removal is a soft
+  delete (`archivedAt` on `Reward`, `active: false`) with a `Removed (n)` shelf and **Restore** —
+  past redemptions keep their titles. The kid's prize title wraps (`break-words`).
+
+### Verify
+
+- `npx tsc --noEmit --incremental false` clean for the five owned files.
+- Browser, dev :3100: cleared storage -> `/admin` shows the empty state and writes no
+  `mathtutor.admin.v1`; real-shaped payloads for two kids -> every stat matched the fixture
+  exactly (4 sessions, 321 XP, 250/480 points, 4/5 solved, 60% first-try, 1m 5s, level 2 -> 3,
+  reteach flag) and switching to a kid with no payloads shows that kid's empty state.
+- Clamp proof: a stored 200-char title / `999999999999`-pt cost rendered as exactly 60 characters /
+  `10000 pts` on the kid's `/rewards` (no 10-digit number anywhere), storage self-heals to
+  60/10000/365, and a 200-char title or `999999999999` cost typed past `maxLength` is rejected with
+  "Titles can be at most 60 characters." / "Costs can be at most 10,000 points.".
+- Lifecycle proof: Remove -> sheet -> confirm -> row archived (`active: false`, `archivedAt` set),
+  gone from the kid's list, present under Removed; Restore -> active again; Turn off -> sheet ->
+  confirm -> hidden from the kid. Lock -> gate shown and `mathtutor.admin.unlocked` cleared.
+- `npx tsx --test tests/rewards.test.ts tests/fixes-audit.test.ts src/app/admin/__tests__/analytics.test.ts`
+  -> 63/63 pass.
+
+## Backup/restore hardening: cross-kid contamination + honest restore (2026-09-10)
+
+`src/lib/profile/store.ts`, `tests/backup.test.ts` (review: `/tmp/mt-backup-review.md`).
+
+- **Format coverage.** `practiceProgress.v1` (session.ts:484, mid-run resume state) joined
+  `BACKUP_SUFFIXES`, and its un-namespaced twin `mt.practiceProgress.v1` joined `LEGACY_KEYS`, so
+  a backup taken during a practice run keeps the resume state and a restore clears a stale one.
+- **Cross-kid contamination fixed.** `StorageLike` gained optional `key(i)`/`length` (window.localStorage
+  already satisfies it); the restore clear-phase sweeps every `mt.p.<id>.<ownedSuffix>` discovered from
+  the storage key list, not just ids derivable from the profiles doc / backup file. Repro before: a device
+  whose profiles doc is lost while `mt.p.kid-2.*` survives restored to a state where the NEXT kid (kid-2,
+  from the backup's nextId) inherited xp 4242 / balance 99. Stores that cannot enumerate keep the old
+  doc/backup-derived sweep (explicit fallback).
+- **Write scoping.** Payload writes are limited to the suffixes the file's version owns and to ids that are
+  in the restored doc or already on the device — a v1 file can no longer smuggle `quest.v1`, and orphan
+  ids in `data` are not resurrected.
+- **Shape validation.** `parseBackup` normalises `data`/`legacy`/`globals`; a `data: {"kid-1": "not-an-object"}`
+  string used to write 13 character-indexed junk keys (`mt.p.kid-1.0` … `.12`) and now writes nothing.
+  Foreign/garbage files still get the friendly message.
+- **Export never throws.** Every `getItem` in `exportBackup` goes through a guarded read, matching the import
+  path: a locked-down browser yields a sane empty backup instead of crashing `/profiles`
+  (item 3 decision: `mt.profiles.migrated.v1` is still written as `"1"` — every writer stores `"1"`, and
+  skipping it would let `migrateLegacyOnce` re-adopt legacy keys over imported state; only the comment changed).
+- **Honest restore.** New `importBackupReport(store, backup) -> { doc, failed }`; `importBackup` delegates to
+  it. Writes run BEFORE the clear and the clear is skipped entirely if any write failed, so a quota-exhausted
+  iPad never loses existing kid keys in exchange for payloads that could not be written.
+- **`purgeProfile(id, store?)`.** New export: removes the doc entry AND every `mt.p.<id>.*` payload (enumerating
+  keys; BACKUP_SUFFIXES fallback), so the delete UI's "erases their progress on this device" is true. Payloads
+  are purged before the doc entry, and a failed purge leaves the profile in place.
+- Verify: `npx tsx --test tests/backup.test.ts` 17/17 (8 new tests); `npx tsc --noEmit --incremental false`
+  clean tree; probes re-run — review probe 1 and 6 go 3→0 and 2→0 failing, probe 2's ghost-id checks pass
+  wherever the store enumerates (its mock cannot), probe 3's migration-flag check stays "FAIL" by design;
+  `/profiles` loads on dev :3100 with zero console errors.

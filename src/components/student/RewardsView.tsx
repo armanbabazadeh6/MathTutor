@@ -142,7 +142,7 @@ function PrizeRow({
         {reward.icon}
       </span>
       <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <p className="font-display text-kid-lg font-semibold">{reward.title}</p>
+        <p className="break-words font-display text-kid-lg font-semibold">{reward.title}</p>
         <p className="text-kid-sm font-bold">
           ⭐ {reward.pointCost} pts
           {reward.minStreakDays ? ` · 🔥 ${reward.minStreakDays}-day streak` : null}

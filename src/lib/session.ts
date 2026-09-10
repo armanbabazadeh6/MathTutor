@@ -13,9 +13,9 @@ import { recordActivity } from "./rewards/earning";
 import type { EarnEvents } from "./rewards/earning";
 import { emptyPointsState } from "./rewards/types";
 import type { PointsState } from "./rewards/types";
+import { currentStreakDays } from "./analytics";
 import { profileKey } from "./profile/store";
 import {
-  awardQuestCompletion,
   isQuestComplete,
   isQuestExpired,
   regenerateQuest,
@@ -286,28 +286,58 @@ function skillNameOf(skillId: string): string {
 }
 
 /**
+ * Optional explicit scope for {@link generateAssignment}: serve these skills
+ * (so a free-text topic really gets its own problems) and name the session.
+ * Ids without a deterministic generator are ignored, and everything else —
+ * plan levels, mastery, history — still comes from the persisted plan
+ * session, so a requested skill is minted at its real plan level.
+ */
+export interface AssignmentScope {
+  /** Real `SKILLS` ids to draw from. Empty/absent keeps the domain pick. */
+  skillIds?: string[];
+  /** Session name; falls back to the custom topic text, then domain names. */
+  label?: string;
+}
+
+/**
  * Plan-driven assignment builder. Consumes the persisted plan queue
  * (levels + mastery + history via buildPlan) instead of a fixed topic mix:
  * each queue item fixes (skillId, level, difficulty) and one deterministic
- * generator problem is minted per item. The plan registry (45 skills) is
- * wider than the deterministic generators (see ALL_SKILLS), so queue items
- * without a generator are skipped and the shortfall tops up from the
- * weakest supported skills. Items outside the picked domains are swapped to
- * the weakest picked-domain supported skill with per-skill headroom, so the
- * Today picker still scopes topics while difficulty follows the plan. The
- * plan's MAX_PER_SKILL_PER_PLAN cap bounds repeats.
+ * generator problem is minted per item. The plan registry (56 skills) is the
+ * same width as the deterministic generators (see ALL_SKILLS), so queue items
+ * without a generator are skipped and the shortfall tops up from the weakest
+ * supported skills. Items outside the picked domains are swapped to the
+ * weakest picked-domain supported skill with per-skill headroom, so the Today
+ * picker still scopes topics while difficulty follows the plan.
+ *
+ * With `scope.skillIds` the picked skills ARE the pool: every served problem
+ * comes from that list (at its own plan level) and the anti-over-drill cap is
+ * lifted to the requested count, so a one-skill topic like "money" still
+ * fills the whole run instead of stopping at three problems.
  */
 export function generateAssignment(
   domains: SkillDomain[],
   customTopic = "",
   count = 10,
   profileId?: string | null,
+  scope?: AssignmentScope,
 ): AssignmentState {
-  const active = domains.length ? domains : ALL_DOMAINS;
   const n = Math.max(1, Math.floor(count));
   const session = loadPlanSession(profileId);
   const supported = new Set(ALL_GENERATOR_SKILLS);
-  const inActive = SKILLS.filter((s) => active.includes(s.domain) && supported.has(s.id));
+  const requestedIds = scope?.skillIds ?? [];
+  const requested = SKILLS.filter((s) => requestedIds.includes(s.id) && supported.has(s.id)).map(
+    (s) => s.id,
+  );
+  const scopePool = requested.length ? SKILLS.filter((s) => requested.includes(s.id)) : null;
+  const active: SkillDomain[] = scopePool
+    ? ALL_DOMAINS.filter((d) => scopePool.some((s) => s.domain === d))
+    : domains.length
+      ? domains
+      : ALL_DOMAINS;
+  const scopeIds = scopePool ? new Set(requested) : null;
+  const inActive =
+    scopePool ?? SKILLS.filter((s) => active.includes(s.domain) && supported.has(s.id));
   const supportedAll = SKILLS.filter((s) => supported.has(s.id));
   const byMastery = (a: { id: string }, b: { id: string }) =>
     (session.mastery[a.id] ?? DEFAULT_MASTERY) - (session.mastery[b.id] ?? DEFAULT_MASTERY);
@@ -322,32 +352,42 @@ export function generateAssignment(
     size: n,
   });
   const used: Record<string, number> = {};
+  // An explicit topic is a kid asking for one thing, so the anti-over-drill
+  // cap cannot starve the run; the domain pick keeps the plan's own cap.
+  const perSkillCap = scopePool ? n : MAX_PER_SKILL_PER_PLAN;
   const queue = plan.items.filter((item) => supported.has(item.skillId));
-  // Top up from weakest supported skills when the plan queue is short.
-  const topUpPool = [...supportedAll].sort(byMastery);
-  for (const s of topUpPool) {
-    if (queue.length >= n) break;
-    if ((used[s.id] ?? 0) >= MAX_PER_SKILL_PER_PLAN) continue;
-    const copies = queue.filter((q) => q.skillId === s.id).length;
-    if (copies >= MAX_PER_SKILL_PER_PLAN) continue;
+  // Top up when the plan queue is short, always from the least-used skill so
+  // the run spreads across the topic instead of stacking on the weakest one.
+  const topUpPool = scopePool ?? supportedAll;
+  const queueCounts: Record<string, number> = {};
+  for (const s of topUpPool) queueCounts[s.id] = queue.filter((q) => q.skillId === s.id).length;
+  for (let i = 0; queue.length < n && i < n * 2 + topUpPool.length; i++) {
+    const next = [...topUpPool].sort(
+      (a, b) => queueCounts[a.id] - queueCounts[b.id] || byMastery(a, b),
+    )[0];
+    if (queueCounts[next.id] >= perSkillCap) break; // every skill is at the cap
     queue.push({
-      skillId: s.id,
-      level: clampLevel(session.levels[s.id] ?? DEFAULT_LEVEL),
-      difficulty: levelToDifficulty(clampLevel(session.levels[s.id] ?? DEFAULT_LEVEL)),
+      skillId: next.id,
+      level: clampLevel(session.levels[next.id] ?? DEFAULT_LEVEL),
+      difficulty: levelToDifficulty(clampLevel(session.levels[next.id] ?? DEFAULT_LEVEL)),
       reason: "weak",
     });
+    queueCounts[next.id] += 1;
   }
   const problems: GeneratedProblem[] = queue.slice(0, n).map((item, i) => {
     // The plan may pick a skill outside the topics the kid tapped. Substitute
-    // within the tapped domains, but record the intent so the UI can say so
-    // rather than silently relabelling the problem.
+    // within the tapped domains (or the requested skills), but record the
+    // intent so the UI can say so rather than silently relabelling the problem.
     const subPool = inActive.length ? inActive : supportedAll;
     const intendedSkillId = item.skillId;
     let skillId = item.skillId;
-    if (!active.includes(skillDomainOf(skillId))) {
-      const sub =
-        [...subPool].sort(byMastery).find((c) => (used[c.id] ?? 0) < MAX_PER_SKILL_PER_PLAN) ??
-        weakestActive;
+    if (scopeIds ? !scopeIds.has(skillId) : !active.includes(skillDomainOf(skillId))) {
+      // A requested topic covers several skills, so fill the least-used one
+      // next (mastery breaks ties); the domain pick keeps its mastery order.
+      const ordered = scopeIds
+        ? [...subPool].sort((a, b) => (used[a.id] ?? 0) - (used[b.id] ?? 0) || byMastery(a, b))
+        : [...subPool].sort(byMastery);
+      const sub = ordered.find((c) => (used[c.id] ?? 0) < perSkillCap) ?? weakestActive;
       skillId = sub.id;
     }
     used[skillId] = (used[skillId] ?? 0) + 1;
@@ -377,7 +417,8 @@ export function generateAssignment(
   return {
     id: `a-${Date.now()}-${rnd(1e6)}`,
     createdAt: Date.now(),
-    label: customTopic.trim() || names,
+    // Named for the topic only when the topic's skills were really used.
+    label: (scopePool && scope?.label?.trim()) || customTopic.trim() || names,
     domains: active,
     customTopic: customTopic.trim(),
     problems,
@@ -446,28 +487,238 @@ export function clearAssignment(profileId?: string | null): void {
   removeStored(ASSIGNMENT_KEY, profileId);
 }
 
+/**
+ * Where a kid got to inside a practice run.
+ *
+ * The player promises "Keep going — jump right back in", and Today tells a
+ * kid their problems are saved, so the position has to survive a nav tap or
+ * an iPad sleeping. Saved per profile and keyed to one assignment id.
+ */
+export interface PracticeProgress {
+  assignmentId: string;
+  /** Index of the next unanswered problem. */
+  index: number;
+  /** Attempts already graded in this run, oldest first. */
+  attempts: ProblemAttempt[];
+}
+
+const PRACTICE_PROGRESS_KEY = "mt.practiceProgress.v1";
+
+/** Never throws. A malformed or foreign record reads as "no progress". */
+export function loadPracticeProgress(profileId?: string | null): PracticeProgress | null {
+  try {
+    const raw = readStored(PRACTICE_PROGRESS_KEY, profileId);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<PracticeProgress>;
+    if (!parsed || typeof parsed.assignmentId !== "string" || !parsed.assignmentId) return null;
+    const index = typeof parsed.index === "number" && Number.isFinite(parsed.index)
+      ? Math.max(0, Math.floor(parsed.index))
+      : 0;
+    const attempts = Array.isArray(parsed.attempts) ? (parsed.attempts as ProblemAttempt[]) : [];
+    return { assignmentId: parsed.assignmentId, index, attempts };
+  } catch {
+    return null;
+  }
+}
+
+export function savePracticeProgress(p: PracticeProgress, profileId?: string | null): void {
+  writeStored(PRACTICE_PROGRESS_KEY, JSON.stringify(p), profileId);
+}
+
+export function clearPracticeProgress(profileId?: string | null): void {
+  removeStored(PRACTICE_PROGRESS_KEY, profileId);
+}
+
 export function saveLastResult(r: PracticeResult, profileId?: string | null): void {
   writeStored(RESULT_KEY, JSON.stringify(r), profileId);
+}
+
+function finiteOr(v: unknown, fallback: number): number {
+  return typeof v === "number" && Number.isFinite(v) ? v : fallback;
+}
+
+function countOr(v: unknown): number {
+  return typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.floor(v)) : 0;
+}
+
+/** One stored attempt, coerced onto ProblemAttempt. Null when it is not an object. */
+function normalizeStoredAttempt(raw: unknown): ProblemAttempt | null {
+  if (!raw || typeof raw !== "object") return null;
+  const a = raw as Record<string, unknown>;
+  if (typeof a.problemId !== "string") return null;
+  const domain = (typeof a.domain === "string" ? a.domain : ALL_DOMAINS[0]) as SkillDomain;
+  const skillId = typeof a.skillId === "string" ? a.skillId : "";
+  return {
+    problemId: a.problemId,
+    domain,
+    skillId,
+    skillName: typeof a.skillName === "string" && a.skillName ? a.skillName : skillNameOf(skillId),
+    level: clampLevel(finiteOr(a.level, DEFAULT_LEVEL)),
+    attemptsUsed: countOr(a.attemptsUsed),
+    solved: a.solved === true,
+    correctFirstTry: a.correctFirstTry === true,
+    timeMs: countOr(a.timeMs),
+    ...(typeof a.levelFrom === "number" ? { levelFrom: clampLevel(a.levelFrom) } : {}),
+    ...(typeof a.levelTo === "number" ? { levelTo: clampLevel(a.levelTo) } : {}),
+    ...(typeof a.promoted === "boolean" ? { promoted: a.promoted } : {}),
+    ...(typeof a.demoted === "boolean" ? { demoted: a.demoted } : {}),
+    ...(a.needsReteach === true ? { needsReteach: true } : {}),
+  };
+}
+
+/** One stored per-domain row. Null when it has no readable domain. */
+function normalizeStoredPerDomain(raw: unknown): PracticeResult["perDomain"][number] | null {
+  if (!raw || typeof raw !== "object") return null;
+  const d = raw as Record<string, unknown>;
+  if (typeof d.domain !== "string") return null;
+  return {
+    domain: d.domain as SkillDomain,
+    domainName:
+      typeof d.domainName === "string"
+        ? d.domainName
+        : SKILL_DOMAINS.find((x) => x.id === d.domain)?.name ?? d.domain,
+    total: countOr(d.total),
+    solved: countOr(d.solved),
+  };
+}
+
+/** One stored level transition. Null unless the direction and levels are readable. */
+function normalizeStoredLevelChange(raw: unknown): PracticeResult["levelChanges"][number] | null {
+  if (!raw || typeof raw !== "object") return null;
+  const c = raw as Record<string, unknown>;
+  if (typeof c.skillId !== "string") return null;
+  if (c.direction !== "up" && c.direction !== "down") return null;
+  if (typeof c.from !== "number" || typeof c.to !== "number") return null;
+  return {
+    skillId: c.skillId,
+    skillName: typeof c.skillName === "string" && c.skillName ? c.skillName : skillNameOf(c.skillId),
+    from: clampLevel(c.from),
+    to: clampLevel(c.to),
+    direction: c.direction,
+  };
+}
+
+/** One stored reteach flag. Null when it names no skill. */
+function normalizeStoredReteach(raw: unknown): PracticeResult["reteachSkills"][number] | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.skillId !== "string") return null;
+  return {
+    skillId: r.skillId,
+    skillName: typeof r.skillName === "string" && r.skillName ? r.skillName : skillNameOf(r.skillId),
+  };
+}
+
+/**
+ * Repairs a stored result the way its sibling loaders do. The results screen
+ * trusts every field, so a hand-edited or truncated payload used to render the
+ * crash boundary with no way out (TRY AGAIN re-rendered the same screen).
+ * Anything that is not readable as a PracticeResult reads as null, which the
+ * page already renders as its friendly empty state; a payload stored before
+ * `levelChanges`/`reteachSkills` existed gets those defaulted instead.
+ */
+function normalizeStoredResult(raw: unknown): PracticeResult | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.assignmentId !== "string") return null;
+  const total = r.total;
+  const solved = r.solved;
+  const correctFirst = r.correctFirst;
+  const accuracy = r.accuracy;
+  const xpEarned = r.xpEarned;
+  if (
+    typeof total !== "number" || !Number.isFinite(total) ||
+    typeof solved !== "number" || !Number.isFinite(solved) ||
+    typeof correctFirst !== "number" || !Number.isFinite(correctFirst) ||
+    typeof accuracy !== "number" || !Number.isFinite(accuracy) ||
+    typeof xpEarned !== "number" || !Number.isFinite(xpEarned)
+  ) {
+    return null;
+  }
+  if (typeof r.finishedAt !== "number" || !Number.isFinite(r.finishedAt)) return null;
+  if (!Array.isArray(r.attempts) || !Array.isArray(r.perDomain)) return null;
+  if (r.levelChanges !== undefined && !Array.isArray(r.levelChanges)) return null;
+  if (r.reteachSkills !== undefined && !Array.isArray(r.reteachSkills)) return null;
+  return {
+    assignmentId: r.assignmentId,
+    finishedAt: r.finishedAt,
+    total,
+    solved,
+    correctFirst,
+    accuracy,
+    xpEarned,
+    attempts: r.attempts
+      .map(normalizeStoredAttempt)
+      .filter((a): a is ProblemAttempt => a !== null),
+    perDomain: r.perDomain
+      .map(normalizeStoredPerDomain)
+      .filter((d): d is PracticeResult["perDomain"][number] => d !== null),
+    levelChanges: (r.levelChanges ?? [])
+      .map(normalizeStoredLevelChange)
+      .filter((c): c is PracticeResult["levelChanges"][number] => c !== null),
+    reteachSkills: (r.reteachSkills ?? [])
+      .map(normalizeStoredReteach)
+      .filter((s): s is PracticeResult["reteachSkills"][number] => s !== null),
+  };
 }
 
 export function loadLastResult(profileId?: string | null): PracticeResult | null {
   try {
     const raw = readStored(RESULT_KEY, profileId);
     if (!raw) return null;
-    return JSON.parse(raw) as PracticeResult;
+    return normalizeStoredResult(JSON.parse(raw) as unknown);
   } catch {
     return null;
   }
 }
 
-export function loadProgress(profileId?: string | null): ProgressState {
+/** A run the kid left part-done: what is queued, and what is actually left. */
+export interface UnfinishedRun {
+  assignment: AssignmentState;
+  /** Problems not answered yet, from the resume record. Never 0 here. */
+  remaining: number;
+  total: number;
+  /** True when the queued run is today's fixed quest (not extra practice). */
+  isQuest: boolean;
+}
+
+/**
+ * THE honest "unfinished today" signal, for the quest and extra practice
+ * alike. Counts what is really left: the queued assignment's problems minus
+ * the resume record's `index` (the next unanswered problem the player saved).
+ * A run handed over to the results screen has no progress record and a
+ * matching last result, so it reads as finished rather than "10 left".
+ */
+export function loadUnfinishedRun(profileId?: string | null): UnfinishedRun | null {
+  const assignment = loadAssignment(profileId);
+  if (!assignment || assignment.problems.length === 0) return null;
+  const handedOver = loadLastResult(profileId);
+  if (handedOver && handedOver.assignmentId === assignment.id) return null;
+  const total = assignment.problems.length;
+  const progress = loadPracticeProgress(profileId);
+  const answered =
+    progress && progress.assignmentId === assignment.id ? Math.min(progress.index, total) : 0;
+  const remaining = total - answered;
+  if (remaining <= 0) return null;
+  return { assignment, remaining, total, isQuest: isQuestAssignment(assignment) };
+}
+
+export function loadProgress(profileId?: string | null, today = localDateISO()): ProgressState {
   try {
     const raw = readStored(PROGRESS_KEY, profileId);
-    if (!raw) return emptyProgress();
-    const parsed = JSON.parse(raw) as ProgressState;
-    return { ...emptyProgress(), ...parsed, domainStats: { ...emptyDomainStats(), ...parsed.domainStats } };
+    const parsed = raw ? (JSON.parse(raw) as Partial<ProgressState>) : null;
+    const base = parsed
+      ? { ...emptyProgress(), ...parsed, domainStats: { ...emptyDomainStats(), ...parsed.domainStats } }
+      : emptyProgress();
+    // Stars are the only currency, so xp is a mirror of the wallet balance; the
+    // streak is read from the one shared day set (see streakDaysFor).
+    return {
+      ...base,
+      xp: loadPointsState(profileId).balance,
+      streakCount: streakDaysFor(profileId, today),
+    };
   } catch {
-    return emptyProgress();
+    return { ...emptyProgress(), streakCount: streakDaysFor(profileId, today) };
   }
 }
 
@@ -478,13 +729,40 @@ function saveProgress(p: ProgressState, profileId?: string | null): void {
 function todayStr(): string {
   return localDateISO();
 }
-/** Local "YYYY-MM-DD" one calendar day before the given local date. */
-function dayBefore(dateISO: string): string {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateISO);
-  if (!m) return "";
-  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
-  d.setDate(d.getDate() - 1);
-  return localDateISO(d);
+
+function isLocalDateISO(v: unknown): v is string {
+  return typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
+}
+
+/**
+ * Every local day the kid recorded activity, from the two stores that stamp a
+ * date: the star ledger (`date`, already local) and graded attempts in the plan
+ * session (`at`, epoch ms). This is the same set the /progress calendar paints
+ * its cells from, so the flame and the "in a row" card cannot drift apart. No
+ * date is invented, and legacy untimed entries contribute nothing.
+ */
+function activityDates(profileId?: string | null): string[] {
+  const days = new Set<string>();
+  for (const entry of rawPointsDoc(profileId)?.state.history ?? []) {
+    if (isLocalDateISO(entry.date)) days.add(entry.date);
+  }
+  for (const entry of loadPlanSession(profileId).history) {
+    if (typeof entry.at === "number" && Number.isFinite(entry.at)) {
+      days.add(localDateISO(new Date(entry.at)));
+    }
+  }
+  return Array.from(days).sort();
+}
+
+/**
+ * THE streak: consecutive local days with recorded activity, ending today. An
+ * open today does not zero an active run — it runs through yesterday. Every
+ * streak the app shows or gates on is this number: ProgressState.streakCount
+ * and PointsState.streakDays are both read from it, so recordResult,
+ * recordGradedAttempt and recordReteachOutcome cannot make them diverge.
+ */
+export function streakDaysFor(profileId?: string | null, today = localDateISO()): number {
+  return currentStreakDays(activityDates(profileId), today);
 }
 
 export interface BadgeDef {
@@ -531,17 +809,12 @@ export function recordResult(
 ): { progress: ProgressState; newBadges: string[]; points: PointsState } {
   const progress = loadProgress(profileId);
   const before = new Set(progress.badges);
-
-  progress.sessionsCompleted += 1;
-  progress.xp += result.xpEarned;
-  if (result.solved === result.total && result.total > 0) progress.perfectSessions += 1;
-
   const countStreak = opts?.countStreak !== false;
   const today = opts?.today ?? todayStr();
-  if (countStreak && progress.lastPlayedDate !== today) {
-    progress.streakCount = progress.lastPlayedDate === dayBefore(today) ? progress.streakCount + 1 : 1;
-    progress.lastPlayedDate = today;
-  }
+
+  progress.sessionsCompleted += 1;
+  if (result.solved === result.total && result.total > 0) progress.perfectSessions += 1;
+  if (countStreak && progress.lastPlayedDate !== today) progress.lastPlayedDate = today;
 
   for (const a of result.attempts) {
     const st = progress.domainStats[a.domain];
@@ -550,6 +823,39 @@ export function recordResult(
     if (a.correctFirstTry) st.correctFirst += 1;
     if (a.solved) st.solved += 1;
   }
+
+  // Stars are the single currency, so the session's stars are exactly
+  // `xpEarned` — the same per-problem rate the player shows — plus the
+  // completion event below.
+  const quest = opts?.quest ?? null;
+  const questFull =
+    !!quest &&
+    result.total > 0 &&
+    result.solved === result.total &&
+    isQuestComplete(quest, result.solved) &&
+    !isQuestExpired(quest, today);
+  const replay = questFull && isQuestDoneToday(quest.id, profileId);
+
+  let points = creditStars(loadPointsState(profileId), result.xpEarned, today, "session");
+  if (questFull && !replay) {
+    // First full solve of today's quest: one completion event, the
+    // once-per-active-date bonus and the day streak (canonical rules).
+    points = awardActivity(points, { completions: 1 }, today, profileId);
+    markQuestComplete(quest.id, profileId);
+  } else if (replay) {
+    // Already paid today for this quest id: per-problem/session stars only —
+    // no completion bonus and no streak move.
+    savePointsState(points, profileId);
+  } else if (!countStreak) {
+    points = awardPointsNoStreak(points, { completions: 1 }, today, profileId);
+  } else {
+    points = awardActivity(points, { completions: 1 }, today, profileId);
+  }
+
+  // One canonical streak, recomputed from the same day set the calendar reads
+  // (every writer above has stamped its day by now).
+  progress.streakCount = streakDaysFor(profileId, today);
+  progress.xp = points.balance; // the wallet balance is THE star number
 
   const award = (id: string) => {
     if (!progress.badges.includes(id)) progress.badges.push(id);
@@ -564,32 +870,17 @@ export function recordResult(
   if (result.attempts.some((a) => a.solved && a.attemptsUsed > 1)) award("persistent");
 
   saveProgress(progress, profileId);
-  const quest = opts?.quest ?? null;
-  let points: PointsState;
-  if (
-    quest &&
-    result.solved === result.total &&
-    result.total > 0 &&
-    isQuestComplete(quest, result.solved) &&
-    !isQuestExpired(quest, today)
-  ) {
-    // Full quest solve: one completion event + daily bonus through the
-    // canonical quest path (streak advance + multiplier handled there).
-    points = awardQuestCompletion(loadPointsState(profileId), quest, today);
-    savePointsState(points, profileId);
-    markQuestComplete(quest.id, profileId);
-  } else if (!countStreak) {
-    points = awardPointsNoStreak({ completions: 1 }, today, profileId);
-  } else {
-    points = awardPoints({ completions: 1 }, undefined, profileId);
-  }
   return { progress, newBadges: progress.badges.filter((b) => !before.has(b)), points };
 }
 
 // ---------- points wallet (rewards/earning accrual, versioned) ----------
 
-/** Storage version for the points wallet. Bump on breaking shape changes. */
-export const POINTS_VERSION = 1;
+/**
+ * Storage version for the star wallet. v2 is the merge of the two pre-merge
+ * ledgers (stars in `mt.progress.v1.xp`, points in the wallet) into one star
+ * balance; v1/missing docs are migrated on read (see migrateWalletOnce).
+ */
+export const POINTS_VERSION = 2;
 const POINTS_KEY = "mt.points.v1";
 
 interface PointsDoc {
@@ -609,37 +900,135 @@ function isPointsState(v: unknown): v is PointsState {
   );
 }
 
-/** Loads the persisted points wallet. Missing/corrupt/version-mismatched payloads start empty. */
-export function loadPointsState(profileId?: string | null): PointsState {
+/** Raw wallet doc, migration NOT applied. Never throws. */
+function rawPointsDoc(profileId?: string | null): PointsDoc | null {
   try {
     const raw = readStored(POINTS_KEY, profileId);
-    if (!raw) return emptyPointsState();
+    if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<PointsDoc>;
-    if (parsed.version !== POINTS_VERSION || !isPointsState(parsed.state)) return emptyPointsState();
-    return parsed.state;
+    if (!isPointsState(parsed?.state)) return null;
+    return { version: typeof parsed.version === "number" ? parsed.version : 0, state: parsed.state };
   } catch {
-    return emptyPointsState();
+    return null;
   }
+}
+
+/** Stars earned before the merge, still in `mt.progress.v1.xp`. Never throws. */
+function storedXp(profileId?: string | null): number {
+  try {
+    const raw = readStored(PROGRESS_KEY, profileId);
+    if (!raw) return 0;
+    const parsed = JSON.parse(raw) as { xp?: unknown };
+    const xp = parsed?.xp;
+    return typeof xp === "number" && Number.isFinite(xp) ? Math.max(0, xp) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Stars are the only currency, so `progress.xp` mirrors the wallet balance: the
+ * readers that still look at progress.xp (badges, prize goals, profile stats)
+ * must never see a second, diverging number. No-op for a kid with no progress
+ * doc yet, or when the mirror already matches.
+ */
+function mirrorProgressXp(balance: number, profileId?: string | null): void {
+  try {
+    const raw = readStored(PROGRESS_KEY, profileId);
+    if (!raw) return;
+    const doc = JSON.parse(raw) as Record<string, unknown>;
+    if (!doc || typeof doc !== "object") return;
+    const xp = Math.max(0, Math.round(balance));
+    if (doc.xp === xp) return;
+    writeStored(PROGRESS_KEY, JSON.stringify({ ...doc, xp }), profileId);
+  } catch {
+    /* a malformed progress doc must not block the wallet write */
+  }
+}
+
+/**
+ * One-time merge of the pre-v2 ledgers. Old kids counted the same practice in
+ * both places (stars in progress.xp, points in the wallet), so the single
+ * balance is the LARGER of the two — never the sum, which would pay the same
+ * work twice — minus whatever the wallet had already held or spent. The merged
+ * doc is written once and mirrored into progress.xp, so neither number is
+ * dropped silently.
+ */
+function migrateWalletOnce(profileId?: string | null): PointsState {
+  const doc = rawPointsDoc(profileId);
+  if (doc && doc.version === POINTS_VERSION) return doc.state;
+  const old = doc?.state ?? emptyPointsState();
+  const held = Math.max(0, old.lifetime - old.balance);
+  const earned = Math.max(old.lifetime, old.balance, storedXp(profileId));
+  const merged: PointsState = { ...old, lifetime: earned, balance: Math.max(0, earned - held) };
+  savePointsState(merged, profileId);
+  return merged;
+}
+
+/**
+ * Loads the persisted star wallet — the single balance the UI reads. A missing
+ * or legacy doc adopts the pre-merge XP total once. The streak fields are read
+ * from the shared day set, so the wallet can never hold a stale run or a day
+ * the calendar disagrees with.
+ */
+export function loadPointsState(profileId?: string | null): PointsState {
+  const state = migrateWalletOnce(profileId);
+  const days = activityDates(profileId);
+  return {
+    ...state,
+    streakDays: currentStreakDays(days, localDateISO()),
+    lastActiveDate: days[days.length - 1] ?? state.lastActiveDate,
+  };
 }
 
 export function savePointsState(s: PointsState, profileId?: string | null): void {
   const doc: PointsDoc = { version: POINTS_VERSION, state: s };
   writeStored(POINTS_KEY, JSON.stringify(doc), profileId);
+  mirrorProgressXp(s.balance, profileId);
 }
 
 /**
- * Awards points for play events via the canonical earning rules. Advances
- * the points streak by active date and grants the once-per-day bonus on a
- * new active date. Persists the wallet and returns the updated state.
+ * Credits one activity event through the canonical earning rules: the points
+ * become stars in the single balance, the day streak advances by active date,
+ * and the once-per-active-date bonus is granted unless the caller decides.
  */
-export function awardPoints(events: EarnEvents, today = todayStr(), profileId?: string | null): PointsState {
-  const current = loadPointsState(profileId);
+function awardActivity(
+  current: PointsState,
+  events: EarnEvents,
+  today: string,
+  profileId?: string | null,
+): PointsState {
   const next = recordActivity(current, today, {
     ...events,
     dailyBonus: events.dailyBonus ?? current.lastActiveDate !== today,
   });
   savePointsState(next, profileId);
   return next;
+}
+
+/**
+ * Credits a flat star amount: a finished session's `xpEarned` is the total of
+ * the per-problem stars the player showed, and the wallet is the only ledger.
+ * Bookkeeping only — no streak or daily-bonus side effects.
+ */
+function creditStars(current: PointsState, amount: number, today: string, note: string): PointsState {
+  const stars = Math.max(0, Math.round(amount));
+  if (stars === 0) return current;
+  return {
+    ...current,
+    balance: current.balance + stars,
+    lifetime: current.lifetime + stars,
+    history: [...current.history, { date: today, kind: "grant", points: stars, note }],
+  };
+}
+
+/**
+ * Awards stars for play events via the canonical earning rules. Advances
+ * the star streak by active date and grants the once-per-day bonus on a
+ * new active date. Persists the wallet and returns the updated state.
+ */
+export function awardPoints(events: EarnEvents, today = todayStr(), profileId?: string | null): PointsState {
+  return awardActivity(loadPointsState(profileId), events, today, profileId);
 }
 
 /** Mastery 0..100 per domain from first-try accuracy (needs ≥3 attempts to register). */
@@ -837,10 +1226,15 @@ function applyToSession(s: PlanSessionState, entry: SkillHistoryEntry): LevelUpd
     streak.correct = 0;
   }
   s.streaks[skillId] = streak;
+  const recent = s.history.filter((h) => h.skillId === skillId);
   const res = applyRulesForSkill({
     level: s.levels[skillId] ?? DEFAULT_LEVEL,
     mastery: s.mastery[skillId] ?? DEFAULT_MASTERY,
-    recent: s.history.filter((h) => h.skillId === skillId),
+    recent,
+    // `mastery` already folded every entry in `recent` except this one, so
+    // only the entry being recorded moves it. Folding the whole history here
+    // double-counts (three correct answers read 98%).
+    newOutcomes: [stamped],
     promotedAtStreak: s.promotedAtStreak[skillId],
     demotedAtExhausted: s.demotedAtExhausted[skillId],
   });
@@ -872,14 +1266,16 @@ export function recordGradedAttempt(
   const s = loadPlanSession(profileId);
   const res = applyToSession(s, entry);
   savePlanSession(s, profileId);
-  const events = {
-    firstTryCorrect: entry.firstTryCorrect ? 1 : 0,
-    levelUps: res.promoted ? 1 : 0,
-  };
+  // Per-problem stars are NOT credited here: the session's `xpEarned` already
+  // pays exactly the per-problem rate the player shows, and the wallet is the
+  // single ledger — crediting both would pay every answer twice. A level-up
+  // still pays its bonus the moment it happens.
+  const events = { levelUps: res.promoted ? 1 : 0 };
+  const today = opts?.today ?? todayStr();
   const points =
     opts?.countStreak === false
-      ? awardPointsNoStreak(events, opts?.today ?? todayStr(), profileId)
-      : awardPoints(events, opts?.today ?? todayStr(), profileId);
+      ? awardPointsNoStreak(loadPointsState(profileId), events, today, profileId)
+      : awardPoints(events, today, profileId);
   return { ...res, state: s, points };
 }
 
@@ -910,10 +1306,11 @@ export function recordReteachOutcome(
   else if (!s.reteachQueue.includes(skillId)) s.reteachQueue.push(skillId);
   savePlanSession(s, profileId);
   const events = { levelUps: res.promoted ? 1 : 0 };
+  const today = opts?.today ?? todayStr();
   const points =
     opts?.countStreak === false
-      ? awardPointsNoStreak(events, opts?.today ?? todayStr(), profileId)
-      : awardPoints(events, opts?.today ?? todayStr(), profileId);
+      ? awardPointsNoStreak(loadPointsState(profileId), events, today, profileId)
+      : awardPoints(events, today, profileId);
   return { ...res, state: s, points };
 }
 
@@ -1138,12 +1535,16 @@ function markQuestComplete(questId: string, profileId?: string | null): void {
 }
 
 /**
- * Standard completion points WITHOUT moving the day streak or granting the
+ * Standard completion stars WITHOUT moving the day streak or granting the
  * auto daily bonus: the extra-practice path. Same event math on the current
  * streak, history notes it as extra practice.
  */
-function awardPointsNoStreak(events: EarnEvents, today: string, profileId?: string | null): PointsState {
-  const current = loadPointsState(profileId);
+function awardPointsNoStreak(
+  current: PointsState,
+  events: EarnEvents,
+  today: string,
+  profileId?: string | null,
+): PointsState {
   const preview = recordActivity(current, today, { ...events, dailyBonus: false });
   const delta = preview.balance - current.balance;
   const next: PointsState = {

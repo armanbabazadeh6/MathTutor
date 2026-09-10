@@ -3,14 +3,23 @@
 // Wired into the admin Dashboard (see Dashboard.tsx); all state lives in
 // ./rewardStore (localStorage, versioned, documented Supabase swap) using the
 // canonical types from src/lib/rewards/types.ts.
+//
+// Guardian actions are deliberate: turning a reward off and removing it both
+// ask first, and removal is a soft delete (the row stays so past redemptions
+// keep their title) that can be undone from the Removed shelf.
 "use client";
 
 import { useState } from "react";
 import type { Redemption } from "@/lib/rewards/types";
+import { Alert } from "@/components/duo/Alert";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { Sheet } from "@/components/ui/Sheet";
 import {
+  MAX_REWARD_COST,
+  MAX_REWARD_STREAK,
+  MAX_REWARD_TITLE,
   rewardTitleFor,
   useRewardStore,
   validateRewardInput,
@@ -24,6 +33,13 @@ interface FormDraft {
 
 const EMPTY_DRAFT: FormDraft = { title: "", cost: "", streakRequired: "0" };
 
+/** Guardian action awaiting confirmation in the Sheet. */
+interface PendingAction {
+  kind: "deactivate" | "archive";
+  id: string;
+  title: string;
+}
+
 function RedemptionRow({
   title,
   r,
@@ -35,8 +51,8 @@ function RedemptionRow({
 }) {
   return (
     <li className="flex flex-wrap items-center justify-between gap-2 rounded-card border border-line p-3">
-      <div>
-        <p className="font-bold">{title}</p>
+      <div className="min-w-0">
+        <p className="break-words font-bold">{title}</p>
         <p className="text-sm font-semibold text-muted">
           ⭐ {r.pointCost} pts · requested {r.requestedAt.slice(0, 10)}
           {r.decidedAt ? ` · decided ${r.decidedAt.slice(0, 10)}` : null}
@@ -57,10 +73,13 @@ export function RewardManager() {
   const [draft, setDraft] = useState<FormDraft>(EMPTY_DRAFT);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [pending, setPending] = useState<PendingAction | null>(null);
 
-  const pending = state.redemptions.filter((r) => r.status === "requested");
+  const pendingRequests = state.redemptions.filter((r) => r.status === "requested");
   const approved = state.redemptions.filter((r) => r.status === "approved");
   const history = state.redemptions.filter((r) => r.status !== "requested");
+  const live = state.catalog.filter((r) => !r.archivedAt);
+  const removed = state.catalog.filter((r) => r.archivedAt);
 
   function startEdit(id: string): void {
     const reward = state.catalog.find((r) => r.id === id);
@@ -101,6 +120,13 @@ export function RewardManager() {
     cancelEdit();
   }
 
+  function confirmPending(): void {
+    if (!pending) return;
+    if (pending.kind === "archive") actions.archiveReward(pending.id);
+    else actions.setActive(pending.id, false);
+    setPending(null);
+  }
+
   return (
     <Card
       title="Points economy"
@@ -117,19 +143,19 @@ export function RewardManager() {
         {/* Catalog */}
         <section aria-label="Reward catalog">
           <h3 className="text-lg font-extrabold">Catalog</h3>
-          {state.catalog.length === 0 ? (
+          {live.length === 0 ? (
             <p className="mt-2 text-muted">
               No rewards yet — create the first one below.
             </p>
           ) : (
             <ul className="mt-2 flex flex-col gap-2">
-              {state.catalog.map((r) => (
+              {live.map((r) => (
                 <li
                   key={r.id}
                   className="flex flex-wrap items-center justify-between gap-2 rounded-card border border-line p-3"
                 >
-                  <div>
-                    <p className="font-bold">
+                  <div className="min-w-0">
+                    <p className="break-words font-bold">
                       <span aria-hidden>{r.icon} </span>
                       {r.title}{" "}
                       {r.example ? (
@@ -140,7 +166,7 @@ export function RewardManager() {
                       )}
                     </p>
                     <p className="text-sm font-semibold text-muted">
-                      ⭐ {r.pointCost} pts
+                      ⭐ {r.pointCost.toLocaleString()} pts
                       {streakLabel(r.minStreakDays)}
                     </p>
                   </div>
@@ -154,11 +180,24 @@ export function RewardManager() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => actions.setActive(r.id, !r.active)}
+                      onClick={() =>
+                        r.active
+                          ? setPending({ kind: "deactivate", id: r.id, title: r.title })
+                          : actions.setActive(r.id, true)
+                      }
                       aria-pressed={r.active}
                       className="touch-target text-sm font-bold text-primaryink underline"
                     >
-                      {r.active ? "Deactivate" : "Activate"}
+                      {r.active ? "Turn off" : "Turn on"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setPending({ kind: "archive", id: r.id, title: r.title })
+                      }
+                      className="touch-target text-sm font-bold text-coralink underline"
+                    >
+                      Remove
                     </button>
                   </div>
                 </li>
@@ -177,6 +216,7 @@ export function RewardManager() {
               Title
               <input
                 value={draft.title}
+                maxLength={MAX_REWARD_TITLE}
                 onChange={(e) =>
                   setDraft({ ...draft, title: e.target.value })
                 }
@@ -184,12 +224,16 @@ export function RewardManager() {
                 aria-label="Reward title"
                 className="touch-target rounded-pill border-2 border-line bg-card px-4 text-base font-normal outline-none focus:border-primary"
               />
+              <span className="text-xs font-semibold text-muted">
+                Up to {MAX_REWARD_TITLE} characters
+              </span>
             </label>
             <label className="flex flex-col gap-1 text-sm font-bold">
               Cost (points)
               <input
                 type="number"
                 min={1}
+                max={MAX_REWARD_COST}
                 step={1}
                 value={draft.cost}
                 onChange={(e) => setDraft({ ...draft, cost: e.target.value })}
@@ -197,12 +241,16 @@ export function RewardManager() {
                 aria-label="Reward cost in points"
                 className="touch-target rounded-pill border-2 border-line bg-card px-4 text-base font-normal outline-none focus:border-primary"
               />
+              <span className="text-xs font-semibold text-muted">
+                1–{MAX_REWARD_COST.toLocaleString()} points
+              </span>
             </label>
             <label className="flex flex-col gap-1 text-sm font-bold">
               Streak required (days)
               <input
                 type="number"
                 min={0}
+                max={MAX_REWARD_STREAK}
                 step={1}
                 value={draft.streakRequired}
                 onChange={(e) =>
@@ -211,12 +259,15 @@ export function RewardManager() {
                 aria-label="Required streak in days"
                 className="touch-target rounded-pill border-2 border-line bg-card px-4 text-base font-normal outline-none focus:border-primary"
               />
+              <span className="text-xs font-semibold text-muted">
+                0–{MAX_REWARD_STREAK} days
+              </span>
             </label>
           </div>
           {formError ? (
-            <p role="alert" className="mt-2 text-sm font-bold text-coralink">
+            <Alert tone="error" className="mt-2">
               {formError}
-            </p>
+            </Alert>
           ) : null}
           <div className="mt-3 flex flex-wrap gap-3">
             <Button onClick={submit}>
@@ -230,18 +281,55 @@ export function RewardManager() {
           </div>
         </section>
 
+        {/* Removed (soft-deleted) shelf */}
+        {removed.length > 0 ? (
+          <section aria-label="Removed rewards">
+            <h3 className="text-lg font-extrabold">Removed ({removed.length})</h3>
+            <p className="mt-1 text-sm font-semibold text-muted">
+              Hidden from the kid&apos;s prize list. Past requests keep their history,
+              and restoring puts a reward back in the catalog.
+            </p>
+            <ul className="mt-2 flex flex-col gap-2">
+              {removed.map((r) => (
+                <li
+                  key={r.id}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-card border border-line p-3 opacity-70"
+                >
+                  <div className="min-w-0">
+                    <p className="break-words font-bold">
+                      <span aria-hidden>{r.icon} </span>
+                      {r.title}
+                    </p>
+                    <p className="text-sm font-semibold text-muted">
+                      ⭐ {r.pointCost.toLocaleString()} pts · removed{" "}
+                      {r.archivedAt ? r.archivedAt.slice(0, 10) : "earlier"}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => actions.restoreReward(r.id)}
+                    className="touch-target text-sm font-bold text-primaryink underline"
+                  >
+                    Restore
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+
         {/* Pending inbox */}
         <section aria-label="Pending requests">
           <h3 className="text-lg font-extrabold">
-            Requests waiting on you ({pending.length})
+            Requests waiting on you ({pendingRequests.length})
           </h3>
-          {pending.length === 0 ? (
+          {pendingRequests.length === 0 ? (
             <p className="mt-2 text-muted">
               Nothing waiting — new kid requests land here.
             </p>
           ) : (
             <ul className="mt-2 flex flex-col gap-2">
-              {pending.map((r) => (
+              {pendingRequests.map((r) => (
                 <RedemptionRow
                   key={r.id}
                   r={r}
@@ -306,6 +394,39 @@ export function RewardManager() {
           )}
         </section>
       </div>
+
+      {pending ? (
+        <Sheet
+          title={
+            pending.kind === "archive"
+              ? "Remove this reward?"
+              : "Turn this reward off?"
+          }
+          onClose={() => setPending(null)}
+        >
+          <div className="flex flex-col gap-4">
+            <h2 className="break-words font-display text-kid-xl font-semibold">
+              {pending.kind === "archive" ? "Remove this reward? 🗑️" : "Turn this reward off? 🔕"}
+            </h2>
+            <p className="break-words text-kid-sm font-semibold text-muted">
+              {pending.kind === "archive"
+                ? `“${pending.title}” leaves the kid's prize list. Past requests keep their history, and you can restore it from Removed any time.`
+                : `“${pending.title}” stops showing up on the kid's prize list until you turn it back on. Past requests are untouched.`}
+            </p>
+            <div className="flex flex-wrap gap-3">
+              <Button
+                variant={pending.kind === "archive" ? "coral" : "primary"}
+                onClick={confirmPending}
+              >
+                {pending.kind === "archive" ? "Remove reward" : "Turn off"}
+              </Button>
+              <Button variant="secondary" onClick={() => setPending(null)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </Sheet>
+      ) : null}
     </Card>
   );
 }

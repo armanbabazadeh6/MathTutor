@@ -31,9 +31,6 @@ records where each phase landed and what is genuinely still open. Dated history 
 - **Next.js upgrade** — the tree is pinned to `next@14.2.35` (React 18). The remaining
   `npm audit --audit-level=high` advisories are only fixed by `next@16`, which is why the CI
   audit step is non-blocking (`.github/workflows/ci.yml`).
-- **Backup completeness** — `exportBackup()` covers 6 of the 10 per-kid suffixes; `quest.v1`,
-  `gradeOverrides.v1`, `celebratedGraduations.v1` and `redemptions.v1` are outside
-  `BACKUP_SUFFIXES` in `src/lib/profile/store.ts`.
 - **Cloud wiring** — replace the `localStorage` stores with `src/lib/db/client.ts` calls, and
   move authorization server-side (retiring `ADMIN_PIN` in `src/components/admin/store.ts` and
   the `src/lib/auth.ts` stub).

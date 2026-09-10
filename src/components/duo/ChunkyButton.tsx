@@ -110,13 +110,17 @@ export const ChunkyButton = forwardRef<HTMLButtonElement, Props>(function Chunky
       disabled={isDisabled}
       aria-busy={loading || undefined}
       className={`touch-target mt-focus inline-flex items-center justify-center gap-2 rounded-2xl font-display font-bold uppercase tracking-wide ${
-        variant === "ghost" ? "" : "duo-press"
+        variant === "ghost" || isDisabled ? "" : "duo-press"
       } ${sizes[size]} ${fullWidth ? "w-full" : ""} ${shine && !isDisabled ? "duo-shine-wrap" : ""} ${className}`}
       style={{
         background: skin.bg,
         color: skin.text,
         border: `2px solid ${skin.border}`,
-        boxShadow: `0 4px 0 ${skin.shadow}`,
+        // A disabled button that looks identical to an enabled one is a dead
+        // end for a kid — they tap a bright green CTA and nothing happens.
+        boxShadow: isDisabled ? "none" : `0 4px 0 ${skin.shadow}`,
+        opacity: isDisabled ? 0.55 : 1,
+        filter: isDisabled ? "saturate(0.6)" : undefined,
         ...style,
       }}
       {...rest}

@@ -62,15 +62,14 @@ Local-first works with zero env vars. The schema exists but is **not wired to an
 - One-time migration: pre-profile `mt.*` keys are adopted into the first profile exactly once
   (`migrateLegacyOnce`, flag-guarded); legacy keys are kept as backup.
 - Backup: Export downloads one JSON (`profiles` + per-profile payloads + legacy snapshot);
-  Import restores it. Lives on `/profiles` (and `/profile`). Photos and progress save **on this
-  device only** — export a backup before an iPad wipe.
+  Import restores it as a true replace — the keys the file owns are rewritten and the rest of
+  the device is left alone. `exportBackup` covers every per-kid payload the app writes,
+  including mid-run resume state (`practiceProgress.v1`). Lives on `/profiles` (and `/profile`).
+  Photos and progress save **on this device only** — export a backup before an iPad wipe.
+- Deleting a player (`purgeProfile`) drops the profile AND every `mt.p.<id>.*` payload, so a
+  later kid created with that id can never inherit the removed kid's progress.
 - Storage map: the prize **catalog** is parent-global; each kid's **redemption history** is
   per-profile.
-- **Known backup gap:** `BACKUP_SUFFIXES` in `src/lib/profile/store.ts` covers
-  `assignment.v1`, `lastResult.v1`, `progress.v1`, `newBadges.v1`, `points.v1` and
-  `planSession.v2`. Four per-kid suffixes are **not** in the JSON backup yet — `quest.v1`,
-  `gradeOverrides.v1`, `celebratedGraduations.v1` and `redemptions.v1` — so that state survives
-  only in device storage until they join the backup set.
 
 ## Daily quest + grade unlocks
 

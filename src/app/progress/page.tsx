@@ -18,12 +18,15 @@ import { DAY_MS, isDue, reviewIntervalDays } from "@/lib/plan/srs";
 import { DEFAULT_LEVEL, DEFAULT_MASTERY, LEVEL_LABELS } from "@/lib/plan/levels";
 import type { SkillLevel } from "@/lib/plan/levels";
 import { CURRICULUM_ORDER } from "@/lib/plan/plan";
+import { domainGraduationStatus } from "@/lib/plan/graduation";
 import { SKILLS, SKILL_DOMAINS } from "@/lib/skills";
 import type { Skill } from "@/lib/skills";
-import { currentStreakDays, longestStreakDays } from "@/lib/analytics";
+import { longestStreakDays } from "@/lib/analytics";
 
 /** Days in the streak calendar (5 weeks). */
 const CALENDAR_DAYS = 35;
+/** Day-grid headings, Sunday-first so they match `Date.getDay()`. */
+const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 /** Due-review rows shown before the "…and N more" line. */
 const MAX_DUE_ROWS = 4;
 const LADDER: SkillLevel[] = [1, 2, 3, 4, 5];
@@ -110,9 +113,7 @@ interface DayCell {
 
 interface StreakView {
   cells: DayCell[];
-  /** Consecutive days ending today (through yesterday when today is still open). */
-  current: number;
-  /** Best run across all stored days. */
+  /** Best run across all stored days; the live run is `ProgressState.streakCount`. */
   longest: number;
   playedInWindow: number;
 }
@@ -126,7 +127,6 @@ function streakView(days: string[], today: string): StreakView {
   }));
   return {
     cells,
-    current: currentStreakDays(days, today),
     longest: longestStreakDays(days),
     playedInWindow: cells.reduce((n, c) => (c.played ? n + 1 : n), 0),
   };
@@ -150,12 +150,14 @@ interface DueSkill {
 /**
  * Skills the spaced-review scheduler would serve next: the same interval math
  * the plan builder uses (`reviewIntervalDays` + `isDue`), most overdue first.
- * Only skills with a timestamped attempt can be scheduled.
+ * Only skills with a timestamped attempt can be scheduled, and only skills the
+ * engine would actually serve — a locked grade-5 skill is not up for review.
  */
-function dueForReview(session: PlanSessionState, now: number): DueSkill[] {
+function dueForReview(session: PlanSessionState, now: number, grade5Unlocked: Record<string, boolean>): DueSkill[] {
   const bySkill = groupBySkill(session.history);
   const due: { skill: Skill; dueAt: number; lastSeen: number }[] = [];
   for (const skill of SKILLS) {
+    if (skill.grade === 5 && !grade5Unlocked[skill.domain]) continue;
     const recent = bySkill.get(skill.id);
     if (!recent || recent.length === 0) continue;
     const lastSeen = lastStampedAt(recent);
@@ -193,6 +195,8 @@ interface ProgressPageData {
   today: string;
   streak: StreakView;
   due: DueSkill[];
+  /** Domains whose grade-5 games the engine will actually serve. */
+  grade5Unlocked: Record<string, boolean>;
 }
 
 function loadPageData(): ProgressPageData {
@@ -203,15 +207,30 @@ function loadPageData(): ProgressPageData {
     session,
     loadPointsState().history.map((entry) => entry.date),
   );
-  return { progress, session, today, streak: streakView(days, today), due: dueForReview(session, Date.now()) };
+  // The engine's own unlock rule (`src/lib/plan/plan.ts`): grade-4 always,
+  // grade-5 only once its domain graduates. Parent overrides are deliberately
+  // ignored here — the queue ignores them too, so a locked skill can never be
+  // advertised as playable.
+  const grade5Unlocked: Record<string, boolean> = {};
+  for (const d of SKILL_DOMAINS) {
+    grade5Unlocked[d.id] = domainGraduationStatus(d.id, session.levels, session.mastery).graduated;
+  }
+  return {
+    progress,
+    session,
+    today,
+    streak: streakView(days, today),
+    due: dueForReview(session, Date.now(), grade5Unlocked),
+    grade5Unlocked,
+  };
 }
 
-function MasteryPips({ level, started }: { level: SkillLevel; started: boolean }) {
+function MasteryPips({ level, started, locked = false }: { level: SkillLevel; started: boolean; locked?: boolean }) {
   return (
     <span
       className="flex items-center gap-1"
       role="img"
-      aria-label={started ? `Level ${level} of 5` : "Not started yet"}
+      aria-label={locked ? "Locked, ace grade 4 to open" : started ? `Level ${level} of 5` : "Not started yet"}
     >
       {LADDER.map((step) => (
         <span
@@ -226,18 +245,37 @@ function MasteryPips({ level, started }: { level: SkillLevel; started: boolean }
   );
 }
 
-function SkillRow({ skill, session }: { skill: Skill; session: PlanSessionState }) {
+function SkillRow({ skill, session, unlocked }: { skill: Skill; session: PlanSessionState; unlocked: boolean }) {
   const started = isStarted(session, skill.id);
   const level = session.levels[skill.id] ?? DEFAULT_LEVEL;
   const mastery = session.mastery[skill.id] ?? DEFAULT_MASTERY;
   return (
     <li className="flex flex-col gap-1.5">
       <div className="flex items-baseline justify-between gap-2">
-        <p className="font-display text-kid-base font-semibold">{skill.name}</p>
-        <span className="shrink-0 text-kid-sm font-bold text-muted">{started ? `${mastery}%` : "New!"}</span>
+        <p className="font-display text-kid-base font-semibold">
+          {skill.name}
+          {skill.grade === 5 ? (
+            <span className="ml-2 rounded-pill bg-grape-soft px-2 py-0.5 text-kid-xs font-bold uppercase tracking-wide text-grapeink">
+              Fifth grade
+            </span>
+          ) : null}
+        </p>
+        <span className="shrink-0 text-kid-sm font-bold text-muted">
+          {!unlocked ? "🔒 Locked" : started ? `${mastery}%` : "New!"}
+        </span>
       </div>
-      <ProgressBar value={started ? mastery : 0} max={100} size="sm" label={`${skill.name} mastery`} />
-      {started ? (
+      <ProgressBar
+        value={started ? mastery : 0}
+        max={100}
+        size="sm"
+        label={unlocked ? `${skill.name} mastery` : `${skill.name}: locked, ace grade 4 to open`}
+      />
+      {!unlocked ? (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <MasteryPips level={level} started={false} locked />
+          <span className="text-kid-xs font-bold text-muted">Ace grade 4 to open this! 🔒</span>
+        </div>
+      ) : started ? (
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <MasteryPips level={level} started />
           <span className="text-kid-xs font-bold text-muted">
@@ -285,14 +323,19 @@ function DomainGroup({
   session,
   open,
   onToggle,
+  grade5Unlocked,
 }: {
   domain: { id: string; name: string };
   session: PlanSessionState;
   open: boolean;
   onToggle: (domainId: string) => void;
+  grade5Unlocked: boolean;
 }) {
   const skills = skillsOfDomain(domain.id);
-  const started = skills.reduce((n, s) => (isStarted(session, s.id) ? n + 1 : n), 0);
+  // Counts and bars cover what the kid can actually play: locked grade-5
+  // skills are listed with a padlock, never counted as "started".
+  const playable = skills.filter((s) => s.grade === 4 || grade5Unlocked);
+  const started = playable.reduce((n, s) => (isStarted(session, s.id) ? n + 1 : n), 0);
   const controlId = `domain-control-${domain.id}`;
   const regionId = `domain-region-${domain.id}`;
   return (
@@ -308,7 +351,7 @@ function DomainGroup({
         <span className="min-w-0 flex-1">
           <span className="block font-display text-kid-lg font-semibold leading-tight">{domain.name}</span>
           <span className="mt-eyebrow block text-muted">
-            {started} of {skills.length} started
+            {started} of {playable.length} started
           </span>
         </span>
         <span aria-hidden className="shrink-0 font-display text-kid-lg text-muted">
@@ -318,16 +361,16 @@ function DomainGroup({
       <div className={`px-4 ${open ? "" : "pb-3"}`}>
         <ProgressBar
           value={started}
-          max={skills.length}
+          max={playable.length}
           tone="sky"
           size="sm"
-          label={`${domain.name}: ${started} of ${skills.length} skills started`}
+          label={`${domain.name}: ${started} of ${playable.length} skills started`}
         />
       </div>
       <div id={regionId} role="region" aria-labelledby={controlId} hidden={!open} className="px-4 pb-4 pt-3">
         <ul className="flex flex-col gap-4">
           {skills.map((skill) => (
-            <SkillRow key={skill.id} skill={skill} session={session} />
+            <SkillRow key={skill.id} skill={skill} session={session} unlocked={skill.grade === 4 || grade5Unlocked} />
           ))}
         </ul>
       </div>
@@ -356,9 +399,16 @@ export default function ProgressPage() {
     );
   }
 
-  const { progress, session, streak, due } = data;
-  const startedCount = SKILLS.reduce((n, s) => (isStarted(session, s.id) ? n + 1 : n), 0);
+  const { progress, session, streak, due, grade5Unlocked } = data;
+  // What the kid can actually play today: locked grade-5 skills are invisible
+  // to the engine, so they must not be counted as work waiting to be started.
+  const playable = SKILLS.filter((s) => s.grade === 4 || grade5Unlocked[s.domain]);
+  const startedCount = playable.reduce((n, s) => (isStarted(session, s.id) ? n + 1 : n), 0);
   const dueShown = due.slice(0, MAX_DUE_ROWS);
+  // Weekday headings for the day grid: the first cell starts the columns, so
+  // the header is rotated to match instead of always reading Sun..Sat.
+  const firstWeekday = noonOf(streak.cells[0].key).getDay();
+  const weekdayHeads = WEEKDAY_NAMES.map((_, i) => WEEKDAY_NAMES[(firstWeekday + i) % 7]);
 
   const toggleDomain = (domainId: string) => {
     const next = { ...openDomains, [domainId]: openDomains[domainId] !== true };
@@ -394,7 +444,7 @@ export default function ProgressPage() {
               <div className="min-w-0">
                 <h1 className="font-display text-kid-hero font-semibold tracking-tight">My Progress 📈</h1>
                 <p className="text-kid-lg font-semibold text-muted">
-                  {startedCount} of {SKILLS.length} skills started — each bar shows how strong you are right now.
+                  {startedCount} of {playable.length} skills started — each bar shows how strong you are right now.
                 </p>
               </div>
             </div>
@@ -425,20 +475,29 @@ export default function ProgressPage() {
               session={session}
               open={openDomains[domain.id] === true}
               onToggle={toggleDomain}
+              grade5Unlocked={grade5Unlocked[domain.id] === true}
             />
           ))}
 
           <DuoCard
             title="Practice days"
             subtitle={
-              streak.current > 0
-                ? `You played ${streak.current} day${streak.current === 1 ? "" : "s"} in a row! 🔥`
+              progress.streakCount > 0
+                ? `You played ${progress.streakCount} day${progress.streakCount === 1 ? "" : "s"} in a row! 🔥`
                 : "Play today to start a new run!"
             }
           >
             {streak.cells.some((c) => c.played) ? (
               <>
                 <div className="grid grid-cols-7 gap-1.5" aria-hidden>
+                  {weekdayHeads.map((name) => (
+                    <span key={name} className="text-center text-kid-xs font-bold uppercase text-muted">
+                      {name}
+                    </span>
+                  ))}
+                  {Array.from({ length: firstWeekday }, (_, i) => (
+                    <span key={`lead-${i}`} />
+                  ))}
                   {streak.cells.map((cell) => (
                     <span
                       key={cell.key}
@@ -452,7 +511,7 @@ export default function ProgressPage() {
                 </div>
                 <div className="mt-3 grid grid-cols-3 gap-2 text-center">
                   <div className="rounded-2xl border-2 border-line bg-cream px-2 py-2">
-                    <p className="font-display text-kid-xl font-semibold">{streak.current}</p>
+                    <p className="font-display text-kid-xl font-semibold">{progress.streakCount}</p>
                     <p className="mt-eyebrow">In a row</p>
                   </div>
                   <div className="rounded-2xl border-2 border-line bg-cream px-2 py-2">
@@ -465,7 +524,8 @@ export default function ProgressPage() {
                   </div>
                 </div>
                 <p className="mt-3 text-kid-sm font-semibold text-muted">
-                  Each ⭐ is a day you practised — {streak.playedInWindow} of the last {CALENDAR_DAYS} days.
+                  Each ⭐ is a day you practised — {streak.playedInWindow} of the last {CALENDAR_DAYS} days. The ring
+                  marks today.
                 </p>
               </>
             ) : (
@@ -480,9 +540,13 @@ export default function ProgressPage() {
           <DuoCard title="Coming back around" subtitle="Skills that are ready for a quick check-up!">
             {dueShown.length === 0 ? (
               <EmptyState
-                title="Nothing to review right now"
-                body="Everything you've practised is still fresh. New check-ups appear when a skill is ready."
-                pose="happy"
+                title={session.history.length > 0 ? "Nothing to review right now" : "No check-ups yet!"}
+                body={
+                  session.history.length > 0
+                    ? "Everything you've practised is still fresh. New check-ups appear when a skill is ready."
+                    : "Play a game and this is where we'll line up quick reviews."
+                }
+                pose={session.history.length > 0 ? "happy" : "sleep"}
               />
             ) : (
               <ul className="flex flex-col gap-2">

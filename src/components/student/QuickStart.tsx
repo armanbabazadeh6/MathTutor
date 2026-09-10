@@ -3,36 +3,32 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChunkyButton } from "@/components/duo/ChunkyButton";
-import { isQuestAssignment, loadAssignment, loadLastResult } from "@/lib/session";
+import { loadUnfinishedRun } from "@/lib/session";
 
 /**
- * Compact resume row for the Today screen.
+ * Resume row for the Today screen: one honest count of what is left.
  *
- * The daily quest owns the hero call to action. When the queued assignment is
- * that quest (or is already finished), the quest card already offers
- * "Keep going" / "Play it again" — so this row renders nothing rather than
- * becoming a second, competing nudge. Only an unfinished extra-practice run
- * shows here: one tap and the kid is back in /practice where they stopped.
+ * Reads the queued assignment plus the resume record the player writes
+ * (`loadPracticeProgress`), so the number is the queued problems MINUS the
+ * answered ones — never the full length. Works for a part-done quest and for
+ * part-done extra practice alike: this component never drops the quest case,
+ * it is the caller that decides not to place a second card for the run the
+ * quest hero already owns. A run handed over to the results screen has no
+ * progress record left, so it does not show here at all.
  */
 export function QuickStart() {
   const router = useRouter();
-  const [count, setCount] = useState(0);
+  const [left, setLeft] = useState(0);
 
   useEffect(() => {
     try {
-      const queued = loadAssignment();
-      if (!queued || queued.problems.length === 0 || isQuestAssignment(queued)) {
-        setCount(0);
-        return;
-      }
-      const finished = loadLastResult();
-      setCount(finished && finished.assignmentId === queued.id ? 0 : queued.problems.length);
+      setLeft(loadUnfinishedRun()?.remaining ?? 0);
     } catch {
-      setCount(0);
+      setLeft(0);
     }
   }, []);
 
-  if (count === 0) return null;
+  if (left === 0) return null;
 
   return (
     <div className="mt-card flex items-center gap-3 py-3 pl-4 pr-3">
@@ -40,7 +36,7 @@ export function QuickStart() {
         ⏳
       </span>
       <p className="min-w-0 flex-1 text-kid-sm font-bold text-ink-soft">
-        You still have {count} problems saved.
+        You still have {left} {left === 1 ? "problem" : "problems"} left.
       </p>
       <ChunkyButton size="sm" variant="secondary" onClick={() => router.push("/practice")}>
         Keep going
