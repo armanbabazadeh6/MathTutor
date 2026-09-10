@@ -96,12 +96,26 @@ auto-deploys. No database or AI keys are needed for the local-first build to pas
 
 ## Push checklist
 
-1. `npx tsc --noEmit` — exit 0.
-2. `npm run lint` — exit 0.
-3. `npm test` — all green.
-4. `npm run build` — passes.
-5. Commit, push, let Vercel deploy; smoke-test `/`, `/profiles`, `/profile` (all 200) and a
-   missing URL (friendly 404).
+1. `npm run verify` — typecheck + lint + tests + build in one command.
+
+## Dependency security note (deliberate, not an oversight)
+
+`npm audit --audit-level=high` reports 5 advisories (4 high, 1 critical). `next` is pinned to
+`14.2.35`, which already fixes the App Router RSC DoS (advisory 2025-12-11) that `14.2.5`
+shipped with; the **remaining** advisories are only fixed by `next@16`, which requires React 19.
+
+They are kept, deliberately:
+
+- Every one of them needs a feature this app does not use — `middleware.ts`, Server Actions,
+  route handlers, `next/image`, or a Windows host. There is no custom server and every route is
+  a static client page.
+- The upgrade is a major framework version plus a React major, and this app is a local-first
+  client that stores a kid's progress in `localStorage`; breaking it would lose their data.
+
+So the CI step stays **visible but non-blocking** (`continue-on-error: true`) with the reason
+inline in `.github/workflows/ci.yml`. `npm audit` is pinned to Next 14 and will not be made
+blocking until the Next 16 / React 19 migration happens as its own change. Re-check after any
+dependency bump: `npm audit --audit-level=high`.
 
 ## Docs
 
