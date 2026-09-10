@@ -18,7 +18,9 @@
 // Rollover is by calendar date: a new dateISO yields a new quest id.
 
 import { SKILLS } from "../skills";
-import type { Difficulty } from "../math/types";
+import type { Skill } from "../skills";
+import type { Difficulty, MasteryMap } from "../math/types";
+import { ALL_SKILLS } from "../math/generators";
 import {
   CHALLENGE_MIN_AVG_LEVEL,
   MAX_PER_SKILL_PER_PLAN,
@@ -28,7 +30,8 @@ import {
   clampLevel,
   levelToDifficulty,
 } from "../plan/levels";
-import type { SkillLevel } from "../plan/levels";
+import type { LevelsMap, SkillLevel } from "../plan/levels";
+import { isSkillUnlocked } from "../plan/graduation";
 import {
   POINTS_DAILY_BONUS,
   POINTS_PER_COMPLETION,
@@ -100,6 +103,8 @@ export interface QuestPlanState {
     reason?: string;
   }>;
   levels?: Record<string, number>;
+  /** Per-skill mastery (0-100); with `levels` it decides which grade-5 areas are unlocked. */
+  mastery?: Record<string, number>;
 }
 
 export interface BuildDailyQuestInput {
@@ -226,16 +231,36 @@ function sourceFromPlan(planState?: QuestPlanState | null, challengeUnlocked?: b
   return out;
 }
 
-function fallbackSource(seed: number, target: number, planState?: QuestPlanState | null): SourceItem[] {
+const GENERATOR_BACKED = new Set(ALL_SKILLS);
+
+/**
+ * Skills the quest may draw filler from: unlocked (grade 4, plus grade 5 whose
+ * domain has graduated) and generator-backed, so no item can be a locked
+ * grade-5 topic or a registry skill with no problem generator.
+ */
+function questSkillPool(planState?: QuestPlanState | null): Skill[] {
+  const levels: LevelsMap = {};
+  for (const [id, v] of Object.entries(planState?.levels ?? {})) levels[id] = clampLevel(v);
+  const mastery: MasteryMap = {};
+  for (const [id, v] of Object.entries(planState?.mastery ?? {})) mastery[id] = v;
+  return SKILLS.filter((s) => GENERATOR_BACKED.has(s.id) && isSkillUnlocked(s.id, levels, mastery));
+}
+
+function fallbackSource(
+  seed: number,
+  target: number,
+  planState: QuestPlanState | null | undefined,
+  pool: Skill[],
+): SourceItem[] {
+  if (pool.length === 0) return [];
   const levels = planState?.levels;
   const levelFor = (skillId: string): SkillLevel =>
     levels && typeof levels[skillId] === "number" ? clampLevel(levels[skillId] as number) : DEFAULT_LEVEL;
-  const order = [...SKILLS];
-  const rot = order.length > 0 ? (seed >>> 0) % order.length : 0;
-  const rotated = [...order.slice(rot), ...order.slice(0, rot)];
+  const rot = (seed >>> 0) % pool.length;
+  const rotated = [...pool.slice(rot), ...pool.slice(0, rot)];
   const out: SourceItem[] = [];
   for (let i = 0; i < target; i++) {
-    const s = rotated[i % rotated.length] as (typeof SKILLS)[number];
+    const s = rotated[i % rotated.length] as Skill;
     const level = levelFor(s.id);
     const reason: QuestReason = i === 0 ? "today" : i % 2 === 1 ? "weak" : "review";
     out.push({ skillId: s.id, level, difficulty: levelToDifficulty(level), reason });
@@ -243,7 +268,7 @@ function fallbackSource(seed: number, target: number, planState?: QuestPlanState
   return out;
 }
 
-function pickItems(source: SourceItem[], seed: number, target: number): QuestItem[] {
+function pickItems(source: SourceItem[], seed: number, target: number, pool: Skill[]): QuestItem[] {
   const rng = mulberry32(seed);
   const groups = new Map<QuestReason, SourceItem[]>();
   for (const r of REASON_PRIORITY) groups.set(r, []);
@@ -268,13 +293,14 @@ function pickItems(source: SourceItem[], seed: number, target: number): QuestIte
     picked.push(item);
     counts[item.skillId] = (counts[item.skillId] ?? 0) + 1;
   }
-  // Top up from the skill registry (weak rotation) so the quest always reaches target.
+  // Top up from the eligible pool (unlocked + generator-backed weak rotation)
+  // so the quest always reaches target without serving locked grade-5 content.
   let k = 0;
-  while (picked.length < target) {
-    const s = SKILLS[(seed + k) % SKILLS.length] as (typeof SKILLS)[number];
+  while (picked.length < target && pool.length > 0) {
+    const s = pool[(seed + k) % pool.length] as Skill;
     k++;
     if ((counts[s.id] ?? 0) >= cap) {
-      if (k > SKILLS.length * cap) break;
+      if (k > pool.length * cap) break;
       continue;
     }
     picked.push({ skillId: s.id, level: DEFAULT_LEVEL, difficulty: levelToDifficulty(DEFAULT_LEVEL), reason: "weak" });
@@ -302,11 +328,12 @@ function buildWithSeed(
   const target = questSizeFor(seed);
   const unlocked = isChallengeUnlocked(planState);
   let source = sourceFromPlan(planState, unlocked);
+  const pool = questSkillPool(planState);
   if (source.length < target) {
-    // Keep real plan items first; top-up filler comes from pickItems fallback.
-    source = [...source, ...fallbackSource(seed, target - source.length, planState)];
+    // Keep real plan items first; top-up filler comes from the eligible pool.
+    source = [...source, ...fallbackSource(seed, target - source.length, planState, pool)];
   }
-  const items = pickItems(source, seed, target);
+  const items = pickItems(source, seed, target, pool);
   const quest: Quest = {
     version: QUEST_VERSION,
     id: questId(profileId, dateISO),

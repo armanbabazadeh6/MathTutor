@@ -1,5 +1,6 @@
 import { SKILLS } from "../skills";
 import type { SkillDomain } from "../skills";
+import { ALL_SKILLS } from "../math/generators";
 import type { MasteryMap } from "../math/types";
 import { DEFAULT_LEVEL, DEFAULT_MASTERY } from "./levels";
 import type { LevelsMap } from "./levels";
@@ -23,9 +24,23 @@ export const FIFTH_GRADE_UNLOCK_NAME = "Fifth Grade!" as const;
 export const GRADUATION_SKILL_LEVEL = 4 as const;
 export const GRADUATION_SKILL_MASTERY = 75 as const;
 
-/** Grade-4 skill ids in a domain (the graduation basis). */
+/** Grade-4 skill ids in a domain (the full registry base, generators or not). */
 export function grade4SkillsForDomain(domain: SkillDomain): string[] {
   return SKILLS.filter((s) => s.domain === domain && s.grade === 4).map((s) => s.id);
+}
+
+const GENERATOR_BACKED = new Set(ALL_SKILLS);
+
+/**
+ * Grade-4 skill ids in a domain that have a deterministic generator, i.e. the
+ * skills a kid can actually practice and be graded on. This is the graduation
+ * basis: registry-only skills would otherwise sit at DEFAULT_LEVEL/MASTERY
+ * forever and make graduation mathematically unreachable.
+ */
+export function grade4GeneratorSkillsForDomain(domain: SkillDomain): string[] {
+  return SKILLS.filter(
+    (s) => s.domain === domain && s.grade === 4 && GENERATOR_BACKED.has(s.id),
+  ).map((s) => s.id);
 }
 
 /** Grade-5 skill ids in a domain (the unlock reward). */
@@ -35,29 +50,31 @@ export function grade5SkillsForDomain(domain: SkillDomain): string[] {
 
 export interface DomainGraduationStatus {
   domain: SkillDomain;
-  /** Mean level across ALL grade-4 skills in the domain (missing -> DEFAULT_LEVEL). */
+  /** Mean level across the domain's generator-backed grade-4 skills (missing -> DEFAULT_LEVEL). */
   avgLevel: number;
-  /** Mean mastery across ALL grade-4 skills in the domain (missing -> DEFAULT_MASTERY). */
+  /** Mean mastery across those skills (missing -> DEFAULT_MASTERY). */
   avgMastery: number;
-  /** Share of grade-4 skills individually at level >= 4 and mastery >= 75. */
+  /** Share of generator-backed grade-4 skills individually at level >= 4 and mastery >= 75. */
   coverage: number;
   qualifying: number;
+  /** Generator-backed grade-4 skill count (the coverage denominator). */
   total: number;
   graduated: boolean;
 }
 
 /**
  * Grade one domain: graduated when avg level >= 4 AND avg mastery >= 75
- * AND at least 80% of its grade-4 skills individually clear level 4 /
- * mastery 75. Pure: inputs are plain maps, no I/O. Levels keep the 1-5
- * ladder inside grade-5 skills too — graduation only gates visibility.
+ * AND at least 80% of its generator-backed grade-4 skills individually clear
+ * level 4 / mastery 75. Pure: inputs are plain maps, no I/O. Levels keep the
+ * 1-5 ladder inside grade-5 skills too — graduation only gates visibility. A
+ * domain with no generator-backed grade-4 skills is never graduateable.
  */
 export function domainGraduationStatus(
   domain: SkillDomain,
   levels: LevelsMap = {},
   mastery: MasteryMap = {},
 ): DomainGraduationStatus {
-  const ids = grade4SkillsForDomain(domain);
+  const ids = grade4GeneratorSkillsForDomain(domain);
   const total = ids.length;
   if (total === 0) {
     return { domain, avgLevel: 0, avgMastery: 0, coverage: 0, qualifying: 0, total: 0, graduated: false };

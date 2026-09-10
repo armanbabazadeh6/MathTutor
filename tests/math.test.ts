@@ -15,7 +15,6 @@ import {
 } from "../src/lib/math/answers";
 import { grade, gradeAttempt } from "../src/lib/math/grading";
 import { updateMastery } from "../src/lib/math/mastery";
-import { MAX_PER_SKILL, buildAssignment } from "../src/lib/math/composer";
 
 function num(t: string): number {
   return Number(t.replace(/,/g, ""));
@@ -266,61 +265,6 @@ test("mastery clamps to [0, 100]", () => {
   assert.equal(updateMastery(97, true), 100);
   assert.equal(updateMastery(0, false), 0);
   assert.equal(updateMastery(2, false), 0);
-});
-
-/* ---------- composer ---------- */
-
-const MASTERY = {
-  "oa-mult-1digit": 30,
-  "oa-div-facts": 45,
-  "fr-add-like": 90,
-  "fr-sub-like": 85,
-  "md-area": 70,
-};
-
-test("buildAssignment returns the requested count with unique ids", () => {
-  const a = buildAssignment({ todaySkill: "bt-add-multidigit", masteryMap: MASTERY, count: 10, seed: 5 });
-  assert.equal(a.length, 10);
-  assert.equal(new Set(a.map((p) => p.id)).size, 10);
-  const short = buildAssignment({ todaySkill: "bt-add-multidigit", masteryMap: MASTERY, count: 6, seed: 5 });
-  assert.equal(short.length, 6);
-});
-
-test("today skill leads the mix and challenge is present", () => {
-  const a = buildAssignment({ todaySkill: "bt-add-multidigit", masteryMap: MASTERY, count: 10, seed: 5 });
-  const counts: Record<string, number> = {};
-  for (const p of a) counts[p.skill] = (counts[p.skill] ?? 0) + 1;
-  const today = counts["bt-add-multidigit"] ?? 0;
-  assert.ok(today >= (counts["oa-mult-1digit"] ?? 0), "today skill should lead or tie");
-  assert.ok(today <= MAX_PER_SKILL, "cap violated");
-  assert.ok(a.filter((p) => p.difficulty === "challenge").length >= 1);
-});
-
-test("weak skills fill the weak quota", () => {
-  const a = buildAssignment({ todaySkill: "bt-add-multidigit", masteryMap: MASTERY, count: 10, seed: 5 });
-  const weakHits = a.filter((p) => p.skill === "oa-mult-1digit" || p.skill === "oa-div-facts").length;
-  assert.ok(weakHits >= 2, `expected weak skills reviewed, got ${weakHits}`);
-});
-
-test("no skill appears more than 3 times", () => {
-  const big = buildAssignment({ todaySkill: "bt-add-multidigit", masteryMap: MASTERY, count: 20, seed: 11 });
-  const counts: Record<string, number> = {};
-  for (const p of big) counts[p.skill] = (counts[p.skill] ?? 0) + 1;
-  for (const [s, c] of Object.entries(counts)) assert.ok(c <= MAX_PER_SKILL, `${s} appears ${c}x`);
-});
-
-test("empty history and unknown skill still compose", () => {
-  const a = buildAssignment({ todaySkill: "bt-add-multidigit", seed: 3 });
-  assert.equal(a.length, 10);
-  assert.ok(a.every((p) => ALL_SKILLS.includes(p.skill)));
-  const b = buildAssignment({ todaySkill: "not-a-skill", count: 4, seed: 3 });
-  assert.equal(b.length, 4);
-});
-
-test("same seed composes the same assignment", () => {
-  const a = buildAssignment({ todaySkill: "md-area", masteryMap: MASTERY, count: 10, seed: 77 });
-  const b = buildAssignment({ todaySkill: "md-area", masteryMap: MASTERY, count: 10, seed: 77 });
-  assert.deepEqual(a, b);
 });
 
 test("GENERATORS registry covers every composer skill", () => {

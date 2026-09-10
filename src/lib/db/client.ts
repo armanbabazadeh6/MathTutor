@@ -1,3 +1,5 @@
+import "server-only";
+
 // src/lib/db/client.ts
 // Supabase client helpers. Reads configuration from environment only — no
 // secrets are hardcoded here or anywhere in client code.

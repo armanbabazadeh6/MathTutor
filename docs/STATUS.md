@@ -1,19 +1,27 @@
 # Status
 
+> The dated sections below are a historical log and are kept verbatim. Where an early entry
+> contradicts the code today, current state is summarized here and in `docs/ARCHITECTURE.md`,
+> `docs/DATABASE.md` and `docs/ROADMAP.md`.
+
 ## State
 
-Foundation scaffold complete; app boots to Today-shell placeholder.
+All eight planned phases have landed (see `docs/ROADMAP.md`): the app boots to the Today view
+with a per-kid Daily Quest, adaptive practice, plan/progress/rewards screens, local kid profiles,
+and the `/admin` parent dashboard behind a PIN speed bump. There is no backend at runtime; the
+Supabase schema is written but unwired.
 
-## Completed
+## Scaffold notes (historical)
 
-- Next.js 14 + TS + Tailwind scaffold (Vercel-ready).
+- Next.js 14 (App Router) + TypeScript + Tailwind scaffold (Vercel-ready).
 - Design tokens + Button, Card, Badge, ProgressBar.
-- Skill taxonomy: 45 skills across 5 domains.
+- Skill taxonomy: the scaffold shipped 45 grade-4 skills across 5 domains. `src/lib/skills.ts`
+  now exports 56 `SKILLS` (45 grade-4 + 11 grade-5, unlocked per domain).
 - Docs: ARCHITECTURE, PRODUCT_SPEC, DATABASE, ROADMAP, STATUS.
 
 ## Next
 
-- Math engine (phase 2), then student player (phase 3).
+- Close the open items in `docs/ROADMAP.md` (Next.js 15/16 upgrade, backup suffix gap, cloud wiring).
 
 ## Decisions
 
@@ -156,3 +164,34 @@ Gamification rules, server-only AI provider, and CSS-only polish effects landed 
   effort-points `today` dropped on the default path; stale UTC comment.
 - Verify: `tests/fixes-audit.test.ts` 21 regression tests; `npm test` 304/304 pass;
   `npx tsc --noEmit` exit 0; `npm run build` passes (10 static routes).
+
+## Infra hardening: build/lint/deploy readiness (2026-09-10)
+
+### Changed
+
+- **Next bumped 14.2.5 → 14.2.35** (`next` is pinned exactly; `node -p "require('next/package.json').version"` → `14.2.35`), closing the App Router RSC DoS advisory. Stayed on 14.x (React 18).
+- **Lint is real now**: added `eslint@8.57.1`, `eslint-config-next@14.2.35`, `prettier@3.3.3` (dev) plus `.eslintrc.json`, `.prettierrc`, `.prettierignore`. `next lint` no longer prompts. `npm run lint` exits 0 with 3 warnings in files owned by other slices (`src/app/profile/page.tsx`, `src/app/profiles/page.tsx`: `@next/next/no-img-element`, `react-hooks/exhaustive-deps`).
+- **`server-only`** (`0.0.1`) is now imported by `src/lib/ai/provider.ts` and `src/lib/db/client.ts` instead of being comment-enforced.
+- **`.env*` ignored** with `!.env.example` (`git add -A` can no longer pick up `.env.production`/`.env.development`/`.env.staging`).
+- **`/admin` no longer prints its PIN.** `ADMIN_PIN` reads `NEXT_PUBLIC_ADMIN_PIN` with `2468` as a documented fallback, and its doc comment states plainly that it is a speed bump, not a security boundary.
+- **Security headers** in `next.config.js`: `poweredByHeader: false` + `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy: camera=(), microphone=(), geolocation=()`, `X-Frame-Options: DENY`, and a CSP (`script-src 'self' 'unsafe-inline'`, `'unsafe-eval'` in dev only; `style-src 'self' 'unsafe-inline'`; `img-src 'self' data: blob:`; `font-src 'self' data:`; `connect-src 'self'` + ws in dev + `https://*.supabase.co`; `object-src 'none'`, `base-uri 'self'`, `form-action 'self'`, `frame-ancestors 'none'`). Verified live over HTTP.
+- **Metadata/PWA surface**: `metadataBase` + `openGraph` + `twitter` in `src/app/layout.tsx` (origin from `NEXT_PUBLIC_SITE_URL`, else `VERCEL_URL`, else localhost), plus `src/app/robots.ts`, `src/app/sitemap.ts`, `src/app/icon.svg`, `src/app/not-found.tsx`, `src/app/error.tsx` and `src/app/global-error.tsx` (both boundaries `"use client"`, styled on the app tokens). `/favicon.ico` itself still 404s on a direct request — the icon surface is declared through `<link rel="icon">` + `/icon.svg`.
+- **Test discovery fixed**: `npm test` is now `tsx --test "tests/**/*.test.ts" "src/**/__tests__/**/*.test.ts"` — 16 files matched (15 under `tests/`, 1 at `src/app/admin/__tests__/analytics.test.ts`); the old script hardcoded the nested analytics path.
+- **Scripts/fields**: added `verify` (typecheck + lint + test + build), `lint:fix`, `format`, `format:check`, `test:watch`, `clean`, `engines.node >= 20.9`, `description`, `license: UNLICENSED`, `repository`.
+- **CI**: `.github/workflows/ci.yml` gained `permissions: contents: read`, `concurrency`, `timeout-minutes: 20`, `npm run lint`, a `.next/cache` restore step, and `npm audit --audit-level=high`. The audit step is `continue-on-error: true` **because it genuinely fails on this pinned tree**: 5 advisories (1 critical, 4 high — `next`, `@next/eslint-plugin-next`, `eslint-config-next`, `glob`, nested `postcss`) whose only offered fix is `next@16`. Blocking it would mean a permanently red CI, so it stays visible-but-non-blocking until the Next 16 / React 19 upgrade. Added `.github/dependabot.yml` (weekly npm + github-actions).
+- **Docs rewritten to match the code**: `ARCHITECTURE.md`, `DATABASE.md` (12 tables + triggers + RLS from `supabase/migrations/0001_init.sql`, explicitly "written, not wired"), `ROADMAP.md` (phases 1–7 shipped, open items listed), `PRODUCT_SPEC.md` (daily quest, grade-5 unlocks, grown-up surfaces), `README.md`, and this STATUS head.
+
+### Verify
+
+- `npx tsc --noEmit`: no errors in the files owned by this slice (the only reported errors are in concurrently-edited `ProblemPlayer.tsx`, `session.ts`, `tests/fixes-audit.test.ts`).
+- `npm run lint`: exit 0, non-interactive (3 warnings, all in another slice's files).
+- Dev-server smoke (`:3210`): `/robots.txt` 200 + all five security headers and no `x-powered-by`; `/sitemap.xml` 200 (`application/xml`); unmatched URL 404 rendering `not-found.tsx` (browser-verified: "This path wandered off!" with cream/green/Fredoka tokens); `/zz-errorsmoke` (throwaway, since deleted) rendered `error.tsx` in a real browser; `/admin` renders the gate with no PIN value on screen; og/twitter tags and `viewport` (no `maximumScale`) present in the HTML.
+- Icons verified with `sips` + magic bytes: `icon-512.png` and `maskable-512.png` are real 512×512 PNGs; `icon-192.png` 192×192 and `apple-touch-icon.png` 180×180 are real PNGs.
+- `npm run build` was intentionally **not** run (other slices were mid-edit).
+
+### Remaining gaps
+
+- `npm audit --audit-level=high` cannot pass until Next 16 / React 19.
+- `/favicon.ico` direct requests 404 (no binary `.ico` was generated; a real 32×32 favicon was out of this slice's owned paths).
+- `supabase/seed.sql` still seeds only the 45 grade-4 skills.
+- `exportBackup()` still covers 6 of the 10 per-kid suffixes.

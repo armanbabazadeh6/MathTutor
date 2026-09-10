@@ -3,6 +3,7 @@
 import { usePathname, useRouter } from "next/navigation";
 import { BottomNav } from "@/components/duo/BottomNav";
 import type { NavItem } from "@/components/duo/BottomNav";
+import { useRewardStore } from "@/components/admin/rewardStore";
 
 const LINKS = [
   { id: "today", href: "/", label: "Today" },
@@ -19,16 +20,30 @@ const ICONS: Record<string, string> = {
 };
 
 /**
- * Student bottom nav, reskinned on the shared Duo BottomNav.
- * Same behavior: sticky bottom nav, active state from pathname.
+ * Student bottom nav: the shared Duo nav, bled past the page gutter so the bar
+ * runs edge to edge.
+ *
+ * The frame exists for that bleed (`-mx-5`), and it carries the pin: sticky is
+ * clamped by the containing block, so the shared nav's own `sticky bottom-0`
+ * cannot move inside a box exactly its own height — it would just track the
+ * scroll. The frame is the only sticky layer and adds no chrome: no border,
+ * background, shadow, or `overflow-hidden` (which used to clip the nav's focus
+ * rings). The bar's top border, translucent background, and safe-area padding
+ * all come from the shared nav.
+ *
+ * The Prizes tab badges a prize a grown-up has approved: that is the one status
+ * a kid can act on, since `requested` is still waiting and `fulfilled` is
+ * already handed over.
  */
 export function StudentNav() {
   const pathname = usePathname();
   const router = useRouter();
-  const isActive = (href: string) =>
-    href === "/" ? pathname === "/" : pathname.startsWith(href);
+  const { state } = useRewardStore();
+  const readyPrizes = state.redemptions.filter((r) => r.status === "approved").length;
   const activeId =
-    LINKS.find((l) => isActive(l.href))?.id ?? "today";
+    LINKS.find((l) =>
+      l.href === "/" ? pathname === "/" : pathname.startsWith(l.href),
+    )?.id ?? "today";
   const items: NavItem[] = LINKS.map((l) => ({
     id: l.id,
     label: l.label,
@@ -37,19 +52,18 @@ export function StudentNav() {
         {ICONS[l.id]}
       </span>
     ),
+    ...(l.id === "rewards" && readyPrizes > 0 ? { badge: readyPrizes } : {}),
   }));
   return (
-    <div className="sticky bottom-0 -mx-5 mt-8 px-5 pb-4 pt-2">
-      <div className="overflow-hidden rounded-3xl border-2 border-line bg-card shadow-chunky">
-        <BottomNav
-          items={items}
-          activeId={activeId}
-          onNavigate={(id) => {
-            const link = LINKS.find((l) => l.id === id);
-            if (link) router.push(link.href);
-          }}
-        />
-      </div>
+    <div className="sticky bottom-0 z-20 -mx-5 mt-8">
+      <BottomNav
+        items={items}
+        activeId={activeId}
+        onNavigate={(id) => {
+          const link = LINKS.find((l) => l.id === id);
+          if (link) router.push(link.href);
+        }}
+      />
     </div>
   );
 }

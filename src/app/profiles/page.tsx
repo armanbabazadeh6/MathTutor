@@ -1,27 +1,26 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { PageFade } from "@/components/effects/PageFade";
 import { DuoCard } from "@/components/duo/Card";
 import { ChunkyButton } from "@/components/duo/ChunkyButton";
 import { Character } from "@/components/duo/Character";
 import { BottomNav } from "@/components/duo/BottomNav";
+import { Sheet } from "@/components/ui/Sheet";
+import { WelcomeHero } from "@/components/onboarding/WelcomeHero";
 import {
   PROFILE_ANIMALS,
   PROFILE_COLORS,
   addProfileWithRandomSalt,
-  exportBackup,
   backupToJson,
   downloadBackup,
+  exportBackup,
   getActiveProfile,
-  isValidPin,
   loadProfiles,
   migrateLegacyOnce,
   parseBackup,
   importBackup,
-  processPhotoFile,
   removeProfile,
   saveProfiles,
   setActiveProfile,
@@ -35,40 +34,20 @@ function AvatarFace({ name, animal, color, photo }: { name: string; animal: stri
       <img
         src={photo}
         alt={name}
-        className="h-20 w-20 rounded-full border-[3px] object-cover"
+        className="h-24 w-24 rounded-full border-[3px] object-cover"
         style={{ borderColor: color, boxShadow: "0 4px 0 var(--chunky-shadow)" }}
       />
     );
   }
   return (
     <span
-      className="flex h-20 w-20 items-center justify-center rounded-full text-5xl"
+      className="flex h-24 w-24 items-center justify-center rounded-full text-6xl"
       style={{ backgroundColor: `${color}33`, border: `3px solid ${color}`, boxShadow: "0 4px 0 var(--chunky-shadow)" }}
       role="img"
       aria-label={name}
     >
       {animal}
     </span>
-  );
-}
-
-function Sheet({ label, onClose, children }: { label: string; onClose: () => void; children: ReactNode }) {
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-ink/40 p-4 sm:items-center"
-      onClick={onClose}
-      role="dialog"
-      aria-modal="true"
-      aria-label={label}
-    >
-      <div
-        className="animate-duo-pop max-h-[90vh] w-full max-w-md overflow-y-auto rounded-3xl border-2 border-line bg-card p-6"
-        style={{ boxShadow: "0 6px 0 var(--chunky-shadow)" }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {children}
-      </div>
-    </div>
   );
 }
 
@@ -113,7 +92,7 @@ function PinPad({
 
 const inputCls =
   "mt-2 w-full rounded-2xl border-2 border-line bg-white px-5 py-3 text-kid-base font-semibold text-ink outline-none focus:border-primary min-h-[56px]";
-const labelCls = "text-kid-base font-bold font-display";
+const labelCls = "font-display text-kid-base font-bold";
 
 export default function ProfilesPage() {
   const router = useRouter();
@@ -122,9 +101,9 @@ export default function ProfilesPage() {
   const [name, setName] = useState("");
   const [color, setColor] = useState<string>(PROFILE_COLORS[0]);
   const [animal, setAnimal] = useState<string>(PROFILE_ANIMALS[0]);
-  const [photo, setPhoto] = useState<string | undefined>(undefined);
-  const [pin, setPin] = useState("");
+  const [addError, setAddError] = useState("");
   const [error, setError] = useState("");
+  const [menuFor, setMenuFor] = useState<string | null>(null);
   const [pinFor, setPinFor] = useState<string | null>(null);
   const [pinEntry, setPinEntry] = useState("");
   const [pinError, setPinError] = useState("");
@@ -147,36 +126,21 @@ export default function ProfilesPage() {
     setDoc(next);
   };
 
-  const pickPhoto = async (f: File | undefined) => {
-    if (!f) return;
-    setError("");
-    try {
-      setPhoto(await processPhotoFile(f));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't read that photo — try another one!");
-    }
-  };
-
   const create = () => {
-    setError("");
+    setAddError("");
     try {
       if (!name.trim()) throw new Error("Please type a name first!");
-      if (pin && !isValidPin(pin)) throw new Error("PIN must be exactly 4 digits (or leave it empty).");
       const cur = loadProfiles();
       const { doc: next } = addProfileWithRandomSalt(cur, {
         name: name.trim(),
         color,
         animal,
-        avatarDataUrl: photo,
-        pin: pin || undefined,
       });
       persist(next);
       setShowAdd(false);
       setName("");
-      setPin("");
-      setPhoto(undefined);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't add that kid — try again!");
+      setAddError(e instanceof Error ? e.message : "Couldn't add that player — try again!");
     }
   };
 
@@ -205,6 +169,12 @@ export default function ProfilesPage() {
     } else {
       setPinError("Hmm, that PIN didn't match — try again!");
     }
+  };
+
+  const openGate = (id: string) => {
+    setGateFor(id);
+    setGateAnswer("");
+    setGateError("");
   };
 
   const confirmDelete = () => {
@@ -242,6 +212,8 @@ export default function ProfilesPage() {
       </main>
     );
   const active = getActiveProfile(doc);
+  const empty = doc.profiles.length === 0;
+  const menuProfile = menuFor ? doc.profiles.find((p) => p.id === menuFor) ?? null : null;
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-3xl flex-col gap-5 px-5 pb-8 pt-6 md:max-w-4xl">
@@ -252,84 +224,81 @@ export default function ProfilesPage() {
             <div>
               <h1 className="font-display text-kid-3xl font-semibold tracking-tight">Who&apos;s playing?</h1>
               <p className="text-kid-base font-semibold text-muted">
-                Tap your face to jump in. {active ? `${active.name} is playing now.` : ""}
+                {active ? `${active.name} is playing now.` : "Tap your face to jump in."}
               </p>
             </div>
           </header>
-          {doc.profiles.length === 0 ? (
-            <section className="flex flex-col items-center gap-3 rounded-3xl border-2 border-line bg-sunny px-6 py-8 text-center" style={{ boxShadow: "0 4px 0 var(--chunky-shadow)" }}>
-              <p className="font-display text-kid-2xl font-semibold tracking-tight">Welcome to MathTutor! 🎉</p>
-              <p className="max-w-md text-kid-base font-semibold text-ink">
-                Your daily math quest that levels up with you. Create your player to start earning gems and prizes.
-              </p>
-              <ChunkyButton variant="primary" size="lg" onClick={() => setShowAdd(true)}>
-                Create your player
-              </ChunkyButton>
-            </section>
-          ) : null}
+
+          {empty ? <WelcomeHero onStart={() => setShowAdd(true)} /> : null}
 
           {error ? (
-            <p className="rounded-2xl border-2 border-coral bg-card px-4 py-3 text-kid-base font-bold text-coral" role="alert">
+            <p className="rounded-2xl border-2 border-coral bg-card px-4 py-3 text-kid-base font-bold text-coralink" role="alert">
               {error}
             </p>
           ) : null}
 
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
-            {doc.profiles.map((p, i) => (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => enter(p.id)}
-                aria-label={`Enter as ${p.name}`}
-                className="duo-press touch-target mt-stagger-item flex min-h-44 flex-col items-center gap-2 rounded-3xl border-2 border-line bg-card p-6 hover:border-primary"
-                style={{ boxShadow: "0 4px 0 var(--chunky-shadow)", ["--mt-delay" as string]: `${Math.min(i, 8) * 60}ms` }}
-              >
-                <AvatarFace name={p.name} animal={p.animal} color={p.color} photo={p.avatarDataUrl} />
-                <span className="font-display text-kid-xl font-semibold">{p.name}</span>
-                {p.pinHash ? <span className="text-kid-sm font-bold text-muted">🔒 PIN</span> : null}
-                {p.id === doc.activeProfileId ? (
-                  <span className="rounded-pill bg-mint px-3 py-1 font-display text-kid-sm font-semibold text-ink">
-                    ● playing
-                  </span>
-                ) : null}
-              </button>
-            ))}
-            <button
-              type="button"
-              onClick={() => setShowAdd(true)}
-              className="duo-press touch-target flex min-h-44 flex-col items-center justify-center gap-2 rounded-3xl border-2 border-dashed border-line bg-card p-6 font-display text-kid-lg font-semibold text-muted hover:border-primary"
-              style={{ boxShadow: "0 4px 0 var(--chunky-shadow)" }}
-            >
-              <span aria-hidden className="flex h-20 w-20 items-center justify-center rounded-full bg-sunny font-display text-4xl text-ink">
-                +
-              </span>
-              Add Kid
-            </button>
-          </div>
-
-          {doc.profiles.length > 0 ? (
-            <DuoCard title="Grown-up zone" subtitle="Removing a kid needs a quick math check" icon={<span aria-hidden className="text-3xl">🔐</span>}>
-              <div className="flex flex-col gap-2">
-                {doc.profiles.map((p) => (
-                  <div key={p.id} className="flex min-h-[56px] items-center justify-between gap-3">
-                    <span className="text-kid-base font-bold">
-                      {p.animal} {p.name}
-                    </span>
-                    <ChunkyButton
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => {
-                        setGateFor(p.id);
-                        setGateAnswer("");
-                        setGateError("");
-                      }}
+          {!empty ? (
+            <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+              {doc.profiles.map((p, i) => {
+                const playing = p.id === doc.activeProfileId;
+                return (
+                  <li
+                    key={p.id}
+                    className="relative mt-stagger-item"
+                    style={{ ["--mt-delay" as string]: `${Math.min(i, 8) * 60}ms` }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => enter(p.id)}
+                      aria-label={`Enter as ${p.name}`}
+                      className={`duo-press touch-target mt-focus flex min-h-44 w-full flex-col items-center justify-center gap-3 rounded-card border-2 bg-card p-4 pt-6 text-center ${
+                        playing ? "border-primary" : "border-line"
+                      }`}
+                      style={{ boxShadow: "0 4px 0 var(--chunky-shadow)" }}
                     >
-                      Remove
-                    </ChunkyButton>
-                  </div>
-                ))}
-              </div>
-            </DuoCard>
+                      <AvatarFace name={p.name} animal={p.animal} color={p.color} photo={p.avatarDataUrl} />
+                      <span className="font-display text-kid-xl font-semibold text-ink">{p.name}</span>
+                      {playing ? (
+                        <span className="rounded-pill bg-mint px-3 py-1 font-display text-kid-sm font-semibold text-ink">
+                          ● Playing now
+                        </span>
+                      ) : p.pinHash ? (
+                        <span className="rounded-pill bg-cream-deep px-3 py-1 font-display text-kid-sm font-semibold text-ink-soft">
+                          🔒 PIN
+                        </span>
+                      ) : (
+                        <span className="rounded-pill bg-cream-deep px-3 py-1 font-display text-kid-sm font-semibold text-ink-soft">
+                          Tap to play
+                        </span>
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMenuFor(p.id)}
+                      aria-label={`Options for ${p.name}`}
+                      className="duo-press touch-target mt-focus absolute right-1 top-1 flex items-center justify-center rounded-full border-2 border-line bg-card text-kid-xl font-bold text-ink-soft"
+                      style={{ boxShadow: "0 2px 0 var(--chunky-shadow)" }}
+                    >
+                      <span aria-hidden>⋯</span>
+                    </button>
+                  </li>
+                );
+              })}
+              <li>
+                <button
+                  type="button"
+                  onClick={() => setShowAdd(true)}
+                  aria-label="Add a player"
+                  className="duo-press touch-target mt-focus flex min-h-44 w-full flex-col items-center justify-center gap-2 rounded-card border-2 border-dashed border-line bg-card p-4 font-display text-kid-lg font-semibold text-muted hover:border-primary"
+                  style={{ boxShadow: "0 4px 0 var(--chunky-shadow)" }}
+                >
+                  <span aria-hidden className="flex h-20 w-20 items-center justify-center rounded-full bg-sunny font-display text-4xl text-ink">
+                    +
+                  </span>
+                  Add player
+                </button>
+              </li>
+            </ul>
           ) : null}
 
           <DuoCard title="Backup" subtitle="So an iPad wipe can't erase progress" icon={<span aria-hidden className="text-3xl">💾</span>}>
@@ -368,10 +337,10 @@ export default function ProfilesPage() {
       />
 
       {showAdd ? (
-        <Sheet label="Add a kid" onClose={() => setShowAdd(false)}>
-          <h2 className="font-display text-kid-xl font-semibold">Add a kid 🎉</h2>
-          <p className="text-kid-sm font-semibold text-muted">Name + favorite color and animal</p>
-          <div className="mt-4 flex flex-col gap-4">
+        <Sheet title="Add a player" onClose={() => setShowAdd(false)}>
+          <h2 className="font-display text-kid-xl font-semibold">Add a player 🎉</h2>
+          <p className="mt-1 text-kid-sm font-semibold text-muted">Name, a favorite color and an animal buddy.</p>
+          <div className="mt-5 flex flex-col gap-5">
             <label className={labelCls}>
               Name
               <input
@@ -392,7 +361,9 @@ export default function ProfilesPage() {
                     onClick={() => setColor(c)}
                     aria-label={`Color ${c}`}
                     aria-pressed={color === c}
-                    className={`touch-target h-14 w-14 rounded-full border-2 ${color === c ? "border-primary ring-4 ring-primary ring-offset-2" : "border-line"}`}
+                    className={`touch-target h-14 w-14 rounded-full border-2 ${
+                      color === c ? "border-primary ring-4 ring-primary ring-offset-2" : "border-line"
+                    }`}
                     style={{ backgroundColor: c }}
                   />
                 ))}
@@ -408,59 +379,23 @@ export default function ProfilesPage() {
                     onClick={() => setAnimal(a)}
                     aria-label={`Animal ${a}`}
                     aria-pressed={animal === a}
-                    className={`touch-target flex min-h-[56px] min-w-[56px] items-center justify-center rounded-2xl border-2 p-2 text-3xl ${animal === a ? "border-primary bg-mint" : "border-line bg-card"}`}
+                    className={`touch-target flex min-h-[56px] min-w-[56px] items-center justify-center rounded-2xl border-2 p-2 text-3xl ${
+                      animal === a ? "border-primary bg-mint" : "border-line bg-card"
+                    }`}
                   >
                     {a}
                   </button>
                 ))}
               </div>
             </div>
-            <div>
-              <p className={labelCls}>Photo (optional)</p>
-              <div className="mt-2 flex items-center gap-3">
-                <label
-                  className="duo-press touch-target inline-flex min-h-[56px] cursor-pointer items-center justify-center gap-2 rounded-2xl border-2 border-line bg-card px-6 font-display text-kid-sm font-semibold uppercase tracking-wide text-ink"
-                  style={{ boxShadow: "0 4px 0 var(--chunky-shadow)" }}
-                >
-                  📷 {photo ? "Change photo" : "Add photo"}
-                  <input
-                    type="file"
-                    accept="image/*"
-                    className="sr-only"
-                    onChange={(e) => void pickPhoto(e.target.files?.[0])}
-                  />
-                </label>
-                {photo ? (
-                  <img
-                    src={photo}
-                    alt="Preview"
-                    className="h-14 w-14 rounded-full border-2 border-line object-cover"
-                  />
-                ) : null}
-              </div>
-            </div>
-            <div>
-              <label className={labelCls}>
-                PIN (optional, 4 digits)
-                <input
-                  value={pin}
-                  onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
-                  inputMode="numeric"
-                  placeholder="e.g. 1234"
-                  aria-label="PIN, 4 digits"
-                  className={`${inputCls} text-center tracking-widest`}
-                />
-              </label>
-              <div className="mt-2">
-                <PinPad
-                  onDigit={(d) => setPin((v) => (v.length >= 4 ? v : v + d))}
-                  onBack={() => setPin((v) => v.slice(0, -1))}
-                />
-              </div>
-            </div>
+            {addError ? (
+              <p className="font-bold text-coralink" role="alert">
+                {addError}
+              </p>
+            ) : null}
             <div className="flex gap-3">
-              <ChunkyButton onClick={create} className="flex-1" shine>
-                Add 🎉
+              <ChunkyButton onClick={create} className="flex-1" disabled={!name.trim()} shine>
+                Create player
               </ChunkyButton>
               <ChunkyButton variant="secondary" onClick={() => setShowAdd(false)}>
                 Cancel
@@ -470,10 +405,59 @@ export default function ProfilesPage() {
         </Sheet>
       ) : null}
 
+      {menuProfile ? (
+        <Sheet title={`Options for ${menuProfile.name}`} onClose={() => setMenuFor(null)}>
+          <div className="flex flex-col items-center gap-3 text-center">
+            <AvatarFace
+              name={menuProfile.name}
+              animal={menuProfile.animal}
+              color={menuProfile.color}
+              photo={menuProfile.avatarDataUrl}
+            />
+            <h2 className="font-display text-kid-xl font-semibold">{menuProfile.name}</h2>
+          </div>
+          <div className="mt-5 flex flex-col gap-3">
+            <ChunkyButton
+              onClick={() => {
+                const id = menuProfile.id;
+                setMenuFor(null);
+                enter(id);
+              }}
+            >
+              Play as {menuProfile.name} ▶️
+            </ChunkyButton>
+            <ChunkyButton
+              variant="secondary"
+              onClick={() => {
+                const id = menuProfile.id;
+                persist(setActiveProfile(loadProfiles(), id));
+                setMenuFor(null);
+                router.push("/profile");
+              }}
+            >
+              Customize ✏️
+            </ChunkyButton>
+            <ChunkyButton
+              variant="coral"
+              onClick={() => {
+                const id = menuProfile.id;
+                setMenuFor(null);
+                openGate(id);
+              }}
+            >
+              Remove player
+            </ChunkyButton>
+            <ChunkyButton variant="ghost" onClick={() => setMenuFor(null)}>
+              Close
+            </ChunkyButton>
+          </div>
+        </Sheet>
+      ) : null}
+
       {pinFor ? (
-        <Sheet label="Type your PIN" onClose={() => setPinFor(null)}>
+        <Sheet title="Type your PIN" onClose={() => setPinFor(null)}>
           <h2 className="font-display text-kid-xl font-semibold">Type your PIN 🔒</h2>
-          <p className="text-kid-sm font-semibold text-muted">4 digits</p>
+          <p className="mt-1 text-kid-sm font-semibold text-muted">4 digits</p>
           <div className="mt-4 flex flex-col gap-3">
             <input
               value={pinEntry}
@@ -487,7 +471,7 @@ export default function ProfilesPage() {
               onBack={() => setPinEntry((v) => v.slice(0, -1))}
             />
             {pinError ? (
-              <p className="font-semibold text-coral" role="alert">
+              <p className="font-bold text-coralink" role="alert">
                 {pinError}
               </p>
             ) : null}
@@ -504,9 +488,11 @@ export default function ProfilesPage() {
       ) : null}
 
       {gateFor ? (
-        <Sheet label="Grown-up check" onClose={() => setGateFor(null)}>
+        <Sheet title="Grown-up check" onClose={() => setGateFor(null)}>
           <h2 className="font-display text-kid-xl font-semibold">Grown-up check 🧮</h2>
-          <p className="text-kid-sm font-semibold text-muted">What is {gate.text}</p>
+          <p className="mt-1 text-kid-sm font-semibold text-muted">
+            Removing a player erases their progress on this device. What is {gate.text}
+          </p>
           <div className="mt-4 flex flex-col gap-3">
             <input
               value={gateAnswer}
@@ -521,7 +507,7 @@ export default function ProfilesPage() {
               maxLen={3}
             />
             {gateError ? (
-              <p className="font-semibold text-coral" role="alert">
+              <p className="font-bold text-coralink" role="alert">
                 {gateError}
               </p>
             ) : null}

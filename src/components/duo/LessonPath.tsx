@@ -72,8 +72,10 @@ export function LessonPath({
   nodes: LessonNode[];
   onSelect?: (id: string) => void;
 }) {
-  const gap = 104;
-  const H = Math.max(140, nodes.length * gap);
+  // Vertical pitch must exceed the tallest node (circle + one-line label +
+  // one-line detail ≈ 132px) or the next circle lands on the previous label.
+  const gap = 152;
+  const H = Math.max(180, nodes.length * gap);
   // Percentage offset keeps the winding shape at any width.
   const pts = nodes.map((_, i) => ({
     x: 50 + Math.sin(i * 0.95) * 22, // 28%..72%
@@ -144,14 +146,14 @@ export function LessonPath({
                   <NodeGlyph state={n.state} />
                 </span>
                 <span
-                  className={`mt-1.5 max-w-[7.5rem] text-center font-display text-kid-xs font-bold leading-tight ${
+                  className={`mt-1.5 w-[8rem] truncate text-center font-display text-kid-xs font-bold leading-tight ${
                     locked ? "text-muted" : "text-ink"
                   }`}
                 >
                   {n.label}
                 </span>
                 {n.detail ? (
-                  <span className="mt-0.5 max-w-[7.5rem] text-center text-kid-xs font-semibold leading-tight text-muted">
+                  <span className="mt-0.5 w-[8rem] truncate text-center text-kid-xs font-semibold leading-tight text-muted">
                     {n.detail}
                   </span>
                 ) : null}

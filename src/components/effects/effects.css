@@ -71,19 +71,22 @@
 }
 
 .mt-ring-track {
-  stroke: var(--color-line, #ece1d0);
+  stroke: var(--color-line);
 }
 
 .mt-ring-fill {
-  stroke: var(--color-primary, #2f7d62);
-  transition: stroke-dashoffset 700ms ease-out;
+  /* `primary-btn` not `primary`: the vivid green is only 1.45:1 against the
+     track, below the 3:1 WCAG 1.4.11 floor for a meaningful graphic. */
+  stroke: var(--color-primary-btn);
+  transition: stroke-dashoffset 700ms var(--ease-out-soft);
 }
 
 .mt-ring-text {
   position: absolute;
-  font-size: 1rem;
-  font-weight: 800;
-  color: var(--color-ink, #2b2620);
+  font-family: var(--font-display);
+  font-size: 1.0625rem;
+  font-weight: 700;
+  color: var(--color-ink);
 }
  .mt-transition {
    transition: opacity 160ms ease-out, transform 160ms ease-out;
@@ -111,11 +114,6 @@
   0% { transform: scale(1); }
   40% { transform: scale(1.18); }
   100% { transform: scale(1); }
-}
-
-@keyframes mt-fade-slide {
-  0% { transform: translateY(6px); opacity: 0; }
-  100% { transform: translateY(0); opacity: 1; }
 }
 
 @keyframes mt-page-in {

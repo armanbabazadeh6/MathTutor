@@ -4,19 +4,22 @@ import { useEffect, useState } from "react";
 import { StudentNav } from "@/components/student/StudentNav";
 import { RewardsView } from "@/components/student/RewardsView";
 import { useRewardStore } from "@/components/admin/rewardStore";
-import { loadPointsState, loadProgress } from "@/lib/session";
+import { ListSkeleton } from "@/components/effects";
+import { loadNewBadges, loadPointsState, loadProgress } from "@/lib/session";
 import type { ProgressState } from "@/lib/session";
 import type { PointsState } from "@/lib/rewards/types";
 
 export default function RewardsPage() {
   const [progress, setProgress] = useState<ProgressState | null>(null);
   const [points, setPoints] = useState<PointsState | null>(null);
+  const [newBadges, setNewBadges] = useState<string[]>([]);
   const [requestError, setRequestError] = useState<string | null>(null);
   const { state: rewards, actions } = useRewardStore();
 
   useEffect(() => {
     setProgress(loadProgress());
     setPoints(loadPointsState());
+    setNewBadges(loadNewBadges());
   }, []);
 
   function handleRequest(rewardId: string): void {
@@ -27,16 +30,16 @@ export default function RewardsPage() {
 
   if (!progress || !points) {
     return (
-      <main className="mx-auto w-full max-w-3xl px-5 py-8">
-        <p className="text-kid-lg font-bold text-muted" role="status">
-          Getting your prizes… ⭐
-        </p>
+      <main className="mt-shell mt-shell-nav flex flex-col gap-5 pt-6">
+        <h1 className="font-display text-kid-3xl font-semibold tracking-tight">My prizes 🏅</h1>
+        <ListSkeleton rows={3} label="Getting your prizes…" />
+        <StudentNav />
       </main>
     );
   }
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-3xl flex-col gap-5 px-5 pb-8 pt-6 md:max-w-4xl">
+    <main className="mt-shell mt-shell-nav flex flex-col gap-5 pt-6">
       <RewardsView
         progress={progress}
         catalog={rewards.catalog}
@@ -44,6 +47,7 @@ export default function RewardsPage() {
         ledger={rewards.redemptions}
         onRequest={handleRequest}
         requestError={requestError}
+        newBadges={newBadges}
       />
       <StudentNav />
     </main>

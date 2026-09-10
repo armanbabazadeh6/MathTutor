@@ -1,3 +1,5 @@
+import "server-only";
+
 // MathTutor — AI provider abstraction for word-problem flavor text.
 //
 // SERVER-ONLY: API keys live in non-NEXT_PUBLIC_ env vars and must never be

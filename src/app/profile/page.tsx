@@ -7,7 +7,9 @@ import { DuoCard } from "@/components/duo/Card";
 import { ChunkyButton } from "@/components/duo/ChunkyButton";
 import { Character } from "@/components/duo/Character";
 import { BottomNav } from "@/components/duo/BottomNav";
+import { Sheet } from "@/components/ui/Sheet";
 import {
+  PHOTO_MAX_DIM,
   PROFILE_ANIMALS,
   PROFILE_COLORS,
   backupToJson,
@@ -23,6 +25,7 @@ import {
   parseBackup,
   processPhotoFile,
   readProfileStats,
+  removeProfile,
   removeProfilePhoto,
   renameProfile,
   saveProfiles,
@@ -76,6 +79,9 @@ export default function ProfilePage() {
   const [error, setError] = useState("");
   const [saved, setSaved] = useState("");
   const [usage, setUsage] = useState("");
+  const [gate, setGate] = useState<{ sum: number; text: string } | null>(null);
+  const [gateAnswer, setGateAnswer] = useState("");
+  const [gateError, setGateError] = useState("");
 
   useEffect(() => {
     migrateLegacyOnce();
@@ -176,6 +182,26 @@ export default function ProfilePage() {
     router.push("/profiles");
   };
 
+  const openGate = () => {
+    const a = 5 + Math.floor(Math.random() * 10);
+    const b = 3 + Math.floor(Math.random() * 10);
+    setGate({ sum: a + b, text: `${a} + ${b} = ?` });
+    setGateAnswer("");
+    setGateError("");
+  };
+
+  const confirmDelete = () => {
+    setGateError("");
+    if (!gate) return;
+    if (Number(gateAnswer) !== gate.sum) {
+      setGateError("Grown-ups only past this point — check the math and try again!");
+      return;
+    }
+    persist(removeProfile(doc, active.id));
+    setGate(null);
+    router.replace("/profiles");
+  };
+
   const statRows = [
     { icon: "⭐", label: "XP", value: String(stats.xp) },
     { icon: "🔥", label: "day streak", value: String(stats.streakCount) },
@@ -187,7 +213,7 @@ export default function ProfilePage() {
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-3xl flex-col gap-5 px-5 pb-8 pt-6 md:max-w-4xl">
       <PageFade>
-        <div className="flex flex-col gap-5">
+        <div className="mt-stagger flex flex-col gap-5">
           <header className="grid grid-cols-[auto_1fr] items-center gap-4">
             {active.avatarDataUrl ? (
               <img
@@ -219,7 +245,7 @@ export default function ProfilePage() {
           </header>
 
           {error ? (
-            <p className="rounded-2xl border-2 border-coral bg-card px-4 py-3 text-kid-base font-bold text-coral" role="alert">
+            <p className="rounded-2xl border-2 border-coral bg-card px-4 py-3 text-kid-base font-bold text-coralink" role="alert">
               {error}
             </p>
           ) : null}
@@ -229,7 +255,7 @@ export default function ProfilePage() {
             </p>
           ) : null}
 
-          <DuoCard title="Photo 📸" subtitle="A small square photo works best">
+          <DuoCard title="Photo 📸" subtitle={`Square photos work best — we shrink them to ${PHOTO_MAX_DIM}px.`}>
             <div className="flex flex-wrap items-center gap-3">
               <label
                 className="duo-press touch-target inline-flex min-h-[56px] cursor-pointer items-center justify-center gap-2 rounded-2xl bg-sky px-6 font-display text-kid-sm font-semibold uppercase tracking-wide text-white"
@@ -299,7 +325,7 @@ export default function ProfilePage() {
 
           <DuoCard
             title="PIN 🔒"
-            subtitle={active.pinHash ? "A PIN is set — type a new one to change it, or save empty to remove." : "No PIN yet — optional 4 digits."}
+            subtitle={active.pinHash ? "A PIN is set — type a new one to change it, or remove it below." : "No PIN yet — optional 4 digits."}
           >
             <div className="flex flex-col gap-3">
               <div className="flex flex-col gap-3 sm:flex-row">
@@ -317,6 +343,14 @@ export default function ProfilePage() {
                 onDigit={(d) => setPin((v) => (v.length >= 4 ? v : v + d))}
                 onBack={() => setPin((v) => v.slice(0, -1))}
               />
+              {active.pinHash ? (
+                <ChunkyButton
+                  variant="secondary"
+                  onClick={() => persist(clearProfilePin(doc, active.id), "PIN removed! 🔓")}
+                >
+                  Remove PIN 🔓
+                </ChunkyButton>
+              ) : null}
             </div>
           </DuoCard>
 
@@ -364,6 +398,16 @@ export default function ProfilePage() {
               </ChunkyButton>
             </div>
           </DuoCard>
+
+          <DuoCard
+            title="Start over 🧹"
+            subtitle="Grown-ups can remove this player and their progress"
+            icon={<span aria-hidden className="text-3xl">🛟</span>}
+          >
+            <ChunkyButton variant="secondary" onClick={openGate}>
+              Remove player
+            </ChunkyButton>
+          </DuoCard>
         </div>
       </PageFade>
 
@@ -379,6 +423,41 @@ export default function ProfilePage() {
           else if (id === "profiles") router.push("/profiles");
         }}
       />
+
+      {gate ? (
+        <Sheet title="Grown-up check" onClose={() => setGate(null)}>
+          <h2 className="font-display text-kid-xl font-semibold">Grown-up check 🧮</h2>
+          <p className="mt-1 text-kid-sm font-semibold text-muted">
+            Removing {active.name} erases their progress on this device. What is {gate.text}
+          </p>
+          <div className="mt-4 flex flex-col gap-3">
+            <input
+              value={gateAnswer}
+              onChange={(e) => setGateAnswer(e.target.value.replace(/\D/g, "").slice(0, 3))}
+              inputMode="numeric"
+              aria-label="Answer"
+              className={`${inputCls} text-center text-kid-xl`}
+            />
+            <PinPad
+              onDigit={(d) => setGateAnswer((v) => (v.length >= 3 ? v : v + d))}
+              onBack={() => setGateAnswer((v) => v.slice(0, -1))}
+            />
+            {gateError ? (
+              <p className="font-bold text-coralink" role="alert">
+                {gateError}
+              </p>
+            ) : null}
+            <div className="flex gap-3">
+              <ChunkyButton variant="coral" onClick={confirmDelete} className="flex-1">
+                Remove kid
+              </ChunkyButton>
+              <ChunkyButton variant="secondary" onClick={() => setGate(null)}>
+                Keep
+              </ChunkyButton>
+            </div>
+          </div>
+        </Sheet>
+      ) : null}
     </main>
   );
 }

@@ -49,7 +49,7 @@ export function AdminGate({ children }: { children: ReactNode }) {
       <Card title="Parent area" subtitle="Enter the parent PIN to continue.">
         <div className="flex flex-col gap-3">
           <label className="text-sm font-bold" htmlFor="admin-pin">
-            PIN (demo: {ADMIN_PIN})
+            PIN
           </label>
           <input
             id="admin-pin"

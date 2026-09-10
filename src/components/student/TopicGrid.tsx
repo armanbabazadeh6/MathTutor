@@ -20,8 +20,13 @@ const NICK: Record<SkillDomain, string> = {
 };
 
 /**
- * Topic picker grid, reskinned as chunky Duo tiles.
- * Same props/behavior: `selected` ids + `onToggle` per tap.
+ * Compact topic picker.
+ *
+ * One 56px row per domain instead of a stack of 112px tiles: the whole picker
+ * is ~44% shorter, so optional extra practice no longer reads as a second
+ * screen. Same props/behaviour — `selected` ids plus `onToggle` per tap — and
+ * the picked state is carried by fill, border AND a check mark, never colour
+ * alone.
  */
 export function TopicGrid({
   selected,
@@ -32,9 +37,9 @@ export function TopicGrid({
 }) {
   return (
     <div
-      className="mt-stagger grid grid-cols-1 gap-3 sm:grid-cols-2"
+      className="flex flex-col gap-2"
       role="group"
-      aria-label="Pick what you learned about"
+      aria-label="Pick what you learned about. Tap a topic to pick it, tap again to unpick."
     >
       {SKILL_DOMAINS.map((d) => {
         const active = selected.includes(d.id);
@@ -44,31 +49,26 @@ export function TopicGrid({
             type="button"
             onClick={() => onToggle(d.id)}
             aria-pressed={active}
-            className="duo-press flex min-h-[88px] touch-target items-center gap-4 rounded-3xl border-2 p-4 text-left"
-            style={{
-              background: active ? "var(--color-mint)" : "var(--color-card)",
-              borderColor: active ? "var(--color-primary-dark)" : "var(--color-line)",
-              boxShadow: active
-                ? "0 4px 0 var(--color-primary-dark)"
-                : "0 4px 0 var(--chunky-shadow)",
-            }}
+            className={`duo-press mt-focus flex min-h-[56px] w-full items-center gap-3 rounded-card border-2 px-3 py-2 text-left shadow-chunky-sm ${
+              active ? "border-primarydark bg-mint" : "border-line bg-card"
+            }`}
           >
             <span
               aria-hidden
-              className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border-2 border-line bg-cream text-4xl"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-cream text-2xl leading-none"
             >
               {EMOJI[d.id]}
             </span>
-            <span className="min-w-0">
-              <span className="block font-display text-kid-lg font-semibold leading-snug">
-                {NICK[d.id]}
-              </span>
-              <span className="block truncate text-kid-xs font-semibold text-muted">
-                {d.name}
-              </span>
-              <span className="mt-0.5 block text-kid-sm font-bold text-primarydeep">
-                {active ? "✓ Picked! Tap to undo." : "Tap to pick."}
-              </span>
+            <span className="min-w-0 flex-1 font-display text-kid-base font-semibold leading-tight">
+              {NICK[d.id]}
+            </span>
+            <span
+              aria-hidden
+              className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 text-kid-sm font-bold ${
+                active ? "border-primarydark bg-primarybtn text-white" : "border-line text-transparent"
+              }`}
+            >
+              ✓
             </span>
           </button>
         );

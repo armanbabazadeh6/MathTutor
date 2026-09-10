@@ -1,7 +1,13 @@
-import type { Difficulty } from "../math/types";
+import { DEFAULT_LEVEL, clampLevel } from "../math/types";
+import type { Level } from "../math/types";
+
+export { MIN_LEVEL, MAX_LEVEL, DEFAULT_LEVEL, clampLevel, levelToDifficulty } from "../math/types";
+export type { Level } from "../math/types";
 
 /**
- * Per-skill level ladder (1-5) for one 4th grader.
+ * Per-skill level ladder (1-5) for one 4th grader. The ladder itself lives in
+ * `src/lib/math/types.ts` (single source of truth) and is re-exported here so
+ * every plan-engine import keeps working unchanged.
  *
  * Level meanings:
  * - 1 = Foundational: prerequisite / below-grade support. Concrete models,
@@ -16,24 +22,20 @@ import type { Difficulty } from "../math/types";
  * - 5 = Above-grade challenge: stretch / enrichment past the grade bar.
  *   Maps to `challenge`.
  *
- * Generator-difficulty mapping is intentionally many-to-one because the
- * deterministic generators only emit three difficulties:
- *   L1/L2 -> "easy", L3/L4 -> "medium", L5 -> "challenge".
- * Within a difficulty band, callers scale magnitude/steps by level
- * (e.g. L4 uses larger operands than L3 at the same "medium" difficulty).
+ * The level drives the generators for real: every generator scales its operand
+ * magnitudes, digit counts, denominator sizes, and drawn-value ranges (plus
+ * the shape/pool it samples from) through one shared per-level convention
+ * (`pickByLevel` in `src/lib/math/generators.ts`), so an L4 problem uses
+ * visibly larger numbers than an L3 problem even though both render `medium`.
+ * The level/difficulty map stays many-to-one because there are only three
+ * difficulty tiers.
  */
 
-/** Lowest level on the ladder (foundational). */
-export const MIN_LEVEL = 1 as const;
-/** Highest level on the ladder (above-grade challenge). */
-export const MAX_LEVEL = 5 as const;
-/** Cold-start level for unseen skills. */
-export const DEFAULT_LEVEL = 2 as const;
 /** Cold-start mastery (0-100) for unseen skills. */
 export const DEFAULT_MASTERY = 50 as const;
 
-/** Level ladder values. */
-export type SkillLevel = 1 | 2 | 3 | 4 | 5;
+/** Alias kept for the plan engine's existing import surface. */
+export type SkillLevel = Level;
 
 /** skillId -> level. Plain JSON object; persistable. */
 export type LevelsMap = Record<string, SkillLevel>;
@@ -55,25 +57,6 @@ export const LEVEL_LABELS: Record<SkillLevel, string> = {
   4: "proficient",
   5: "challenge",
 };
-
-/**
- * Generator difficulty for a level. Many-to-one:
- * 1-2 -> easy, 3-4 -> medium, 5 -> challenge.
- */
-export function levelToDifficulty(level: SkillLevel): Difficulty {
-  if (level <= 2) return "easy";
-  if (level <= 4) return "medium";
-  return "challenge";
-}
-
-/** Clamp any number to the 1-5 ladder (floors fractions). */
-export function clampLevel(n: number): SkillLevel {
-  if (!Number.isFinite(n)) return DEFAULT_LEVEL;
-  const f = Math.floor(n);
-  if (f <= MIN_LEVEL) return 1;
-  if (f >= MAX_LEVEL) return 5;
-  return f as SkillLevel;
-}
 
 /** Normalize one raw value into the ladder. */
 export function normalizeLevel(raw: unknown): SkillLevel {

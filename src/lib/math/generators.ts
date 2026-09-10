@@ -1,4 +1,6 @@
-import type { AnswerType, Difficulty, Problem, SkillRef } from "./types";
+import { DEFAULT_LEVEL, levelToDifficulty } from "./types";
+import type { AnswerType, Level, Problem, SkillRef } from "./types";
+import { EXTRA_GENERATORS, EXTRA_GRADES } from "./generators-extra";
 
 export type Rng = () => number;
 
@@ -14,10 +16,31 @@ export function mulberry32(seed: number): Rng {
   };
 }
 
-export type Generator = (rng: Rng) => Problem;
+export type Generator = (rng: Rng, level: Level) => Problem;
 
 function int(rng: Rng, min: number, max: number): number {
   return min + Math.floor(rng() * (max - min + 1));
+}
+
+/**
+ * The single level-scaling convention: `ranges[level - 1]` is the [lo, hi] the
+ * drawn value comes from. Every generator routes its operands, digit counts,
+ * denominator sizes, and drawn-value ranges through this table, so "one rung
+ * higher" always means one predictable step up in size — never an ad-hoc rule.
+ */
+function pickByLevel(
+  rng: Rng,
+  level: Level,
+  ranges: readonly (readonly [number, number])[],
+): number {
+  const [lo, hi] = ranges[level - 1];
+  return int(rng, lo, hi);
+}
+
+/** Same convention for choosing one item out of a per-level pool. */
+function oneByLevel<T>(rng: Rng, level: Level, pools: readonly (readonly T[])[]): T {
+  const pool = pools[level - 1];
+  return pool[int(rng, 0, pool.length - 1)];
 }
 
 function gcd(a: number, b: number): number {
@@ -39,7 +62,7 @@ export function fmt(n: number): string {
 function build(
   rng: Rng,
   skill: SkillRef,
-  difficulty: Difficulty,
+  level: Level,
   answerType: AnswerType,
   text: string,
   answer: string,
@@ -50,7 +73,7 @@ function build(
   return {
     id: `${skill}-${Math.floor(rng() * 1e9).toString(36)}`,
     skill,
-    difficulty,
+    difficulty: levelToDifficulty(level),
     answerType,
     text,
     answer,
@@ -61,13 +84,24 @@ function build(
 }
 
 /* 1. Multi-digit addition */
-function genAddMulti(rng: Rng): Problem {
-  const a = int(rng, 250, 9999);
-  const b = int(rng, 250, 9999);
+function genAddMulti(rng: Rng, level: Level): Problem {
+  const a = pickByLevel(rng, level, [
+    [10, 99],
+    [100, 999],
+    [1000, 9999],
+    [10000, 99999],
+    [100000, 999999],
+  ]);
+  const b = pickByLevel(rng, level, [
+    [1, 9],
+    [10, 99],
+    [100, 999],
+    [1000, 9999],
+    [100000, 999999],
+  ]);
   const sum = a + b;
-  const difficulty: Difficulty = sum >= 10000 ? "challenge" : sum >= 2000 ? "medium" : "easy";
   return build(
-    rng, "bt-add-multidigit", difficulty, "integer",
+    rng, "bt-add-multidigit", level, "integer",
     `What is ${fmt(a)} + ${fmt(b)}?`,
     String(sum),
     `Add the ones column first: ${a % 10} + ${b % 10}.`,
@@ -77,13 +111,25 @@ function genAddMulti(rng: Rng): Problem {
 }
 
 /* 2. Multi-digit subtraction */
-function genSubMulti(rng: Rng): Problem {
-  const a = int(rng, 1000, 9999);
-  const b = int(rng, 100, a - 1);
+function genSubMulti(rng: Rng, level: Level): Problem {
+  const bLo = pickByLevel(rng, level, [
+    [1, 9],
+    [10, 99],
+    [100, 999],
+    [1000, 9999],
+    [10000, 99999],
+  ]);
+  const a = pickByLevel(rng, level, [
+    [20, 99],
+    [1000, 9999],
+    [1000, 99999],
+    [10000, 999999],
+    [100000, 9999999],
+  ]);
+  const b = int(rng, bLo, a - 1);
   const diff = a - b;
-  const difficulty: Difficulty = a >= 5000 ? "medium" : "easy";
   return build(
-    rng, "bt-sub-multidigit", difficulty, "integer",
+    rng, "bt-sub-multidigit", level, "integer",
     `What is ${fmt(a)} - ${fmt(b)}?`,
     String(diff),
     `Subtract the ones column first: ${a % 10} - ${b % 10}${a % 10 < b % 10 ? " (borrow 1 ten first)" : ""}.`,
@@ -93,11 +139,23 @@ function genSubMulti(rng: Rng): Problem {
 }
 
 /* 3. Single-digit multiplication facts */
-function genMultFacts(rng: Rng): Problem {
-  const a = int(rng, 2, 9);
-  const b = int(rng, 2, 9);
+function genMultFacts(rng: Rng, level: Level): Problem {
+  const a = pickByLevel(rng, level, [
+    [2, 5],
+    [2, 9],
+    [2, 9],
+    [2, 9],
+    [2, 9],
+  ]);
+  const b = pickByLevel(rng, level, [
+    [2, 5],
+    [2, 9],
+    [2, 10],
+    [2, 11],
+    [2, 12],
+  ]);
   return build(
-    rng, "oa-mult-1digit", "easy", "integer",
+    rng, "oa-mult-1digit", level, "integer",
     `What is ${a} × ${b}?`,
     String(a * b),
     `Think of it as adding ${a} to itself ${b} times.`,
@@ -107,12 +165,23 @@ function genMultFacts(rng: Rng): Problem {
 }
 
 /* 4. 1-digit × multi-digit */
-function genMultDigit(rng: Rng): Problem {
-  const a = int(rng, 13, 999);
-  const b = int(rng, 3, 9);
-  const difficulty: Difficulty = a >= 500 ? "challenge" : "medium";
+function genMultDigit(rng: Rng, level: Level): Problem {
+  const a = pickByLevel(rng, level, [
+    [12, 49],
+    [13, 199],
+    [13, 999],
+    [100, 4999],
+    [1000, 9999],
+  ]);
+  const b = pickByLevel(rng, level, [
+    [2, 5],
+    [3, 9],
+    [4, 9],
+    [4, 9],
+    [6, 9],
+  ]);
   return build(
-    rng, "oa-mult-digit-1digit", difficulty, "integer",
+    rng, "oa-mult-digit-1digit", level, "integer",
     `What is ${fmt(a)} × ${b}?`,
     String(a * b),
     `Multiply ${b} by the ones digit of ${fmt(a)} first, then carry.`,
@@ -122,12 +191,24 @@ function genMultDigit(rng: Rng): Problem {
 }
 
 /* 5. Division facts */
-function genDivFacts(rng: Rng): Problem {
-  const d = int(rng, 2, 9);
-  const q = int(rng, 2, 9);
+function genDivFacts(rng: Rng, level: Level): Problem {
+  const d = pickByLevel(rng, level, [
+    [2, 5],
+    [2, 9],
+    [2, 9],
+    [3, 9],
+    [4, 9],
+  ]);
+  const q = pickByLevel(rng, level, [
+    [2, 5],
+    [2, 9],
+    [2, 10],
+    [2, 11],
+    [2, 12],
+  ]);
   const n = d * q;
   return build(
-    rng, "oa-div-facts", "easy", "integer",
+    rng, "oa-div-facts", level, "integer",
     `What is ${n} ÷ ${d}?`,
     String(q),
     `Ask: ${d} times what equals ${n}?`,
@@ -137,13 +218,25 @@ function genDivFacts(rng: Rng): Problem {
 }
 
 /* 6. Division with remainders (1-digit divisor) */
-function genDivRemainder(rng: Rng): Problem {
-  const d = int(rng, 2, 9);
-  const q = int(rng, 11, 99);
+function genDivRemainder(rng: Rng, level: Level): Problem {
+  const d = pickByLevel(rng, level, [
+    [2, 5],
+    [2, 9],
+    [3, 9],
+    [4, 9],
+    [6, 9],
+  ]);
+  const q = pickByLevel(rng, level, [
+    [2, 9],
+    [11, 99],
+    [20, 199],
+    [50, 499],
+    [100, 999],
+  ]);
   const r = int(rng, 1, d - 1);
   const n = d * q + r;
   return build(
-    rng, "oa-div-1digit-divisor", "medium", "text",
+    rng, "oa-div-1digit-divisor", level, "text",
     `Divide ${fmt(n)} by ${d}. Give the quotient and remainder like this: Q R R.`,
     `${q} R ${r}`,
     `Find the largest multiple of ${d} that is still below ${fmt(n)} (try ${d} × ${q} = ${fmt(d * q)}).`,
@@ -153,9 +246,21 @@ function genDivRemainder(rng: Rng): Problem {
 }
 
 /* 7. Equivalent fractions (fill in the missing numerator) */
-function genEquiv(rng: Rng): Problem {
-  let n = int(rng, 1, 11);
-  let d = int(rng, 2, 12);
+function genEquiv(rng: Rng, level: Level): Problem {
+  let n = pickByLevel(rng, level, [
+    [1, 4],
+    [1, 11],
+    [1, 15],
+    [1, 19],
+    [1, 23],
+  ]);
+  let d = pickByLevel(rng, level, [
+    [2, 6],
+    [2, 12],
+    [2, 16],
+    [2, 20],
+    [2, 24],
+  ]);
   const g = gcd(n, d);
   n /= g;
   d /= g;
@@ -163,9 +268,15 @@ function genEquiv(rng: Rng): Problem {
     n = 1;
     d = 2;
   }
-  const k = int(rng, 2, 5);
+  const k = pickByLevel(rng, level, [
+    [2, 3],
+    [2, 5],
+    [2, 7],
+    [2, 9],
+    [3, 12],
+  ]);
   return build(
-    rng, "fr-equiv", "easy", "integer",
+    rng, "fr-equiv", level, "integer",
     `Fill in the missing number: ${n}/${d} = ?/${d * k}`,
     String(n * k),
     `Whatever you multiply the bottom by (${d} × ${k}), multiply the top by the same.`,
@@ -175,15 +286,21 @@ function genEquiv(rng: Rng): Problem {
 }
 
 /* 8. Add fractions, like denominators */
-function genAddLike(rng: Rng): Problem {
-  const d = int(rng, 3, 12);
+function genAddLike(rng: Rng, level: Level): Problem {
+  const d = pickByLevel(rng, level, [
+    [3, 6],
+    [3, 12],
+    [4, 16],
+    [6, 20],
+    [8, 24],
+  ]);
   const a = int(rng, 1, d - 2);
   const b = int(rng, 1, d - a - 1);
   const s = a + b;
   const g = gcd(s, d);
   const answer = g > 1 ? `${s / g}/${d / g}` : `${s}/${d}`;
   return build(
-    rng, "fr-add-like", "medium", "fraction",
+    rng, "fr-add-like", level, "fraction",
     `What is ${a}/${d} + ${b}/${d}? Give your answer as a fraction.`,
     answer,
     "Same denominator? Just add the tops and keep the bottom.",
@@ -193,15 +310,21 @@ function genAddLike(rng: Rng): Problem {
 }
 
 /* 9. Subtract fractions, like denominators */
-function genSubLike(rng: Rng): Problem {
-  const d = int(rng, 3, 12);
+function genSubLike(rng: Rng, level: Level): Problem {
+  const d = pickByLevel(rng, level, [
+    [3, 6],
+    [3, 12],
+    [4, 16],
+    [6, 20],
+    [8, 24],
+  ]);
   const a = int(rng, 2, d - 1);
   const b = int(rng, 1, a - 1);
   const s = a - b;
   const g = gcd(s, d);
   const answer = g > 1 ? `${s / g}/${d / g}` : `${s}/${d}`;
   return build(
-    rng, "fr-sub-like", "medium", "fraction",
+    rng, "fr-sub-like", level, "fraction",
     `What is ${a}/${d} - ${b}/${d}? Give your answer as a fraction.`,
     answer,
     "Same denominator? Just subtract the tops and keep the bottom.",
@@ -211,13 +334,22 @@ function genSubLike(rng: Rng): Problem {
 }
 
 /* 10. Comparing decimals */
-function genCompareDecimals(rng: Rng): Problem {
-  let x = int(rng, 1, 999) / 100;
-  let y = int(rng, 1, 999) / 100;
-  while (x === y) y = int(rng, 1, 999) / 100;
+function genCompareDecimals(rng: Rng, level: Level): Problem {
+  const cap = Math.max(2, pickByLevel(rng, level, [
+    [1, 99],
+    [1, 999],
+    [10, 9999],
+    [100, 99999],
+    [1000, 999999],
+  ]));
+  const x = int(rng, 1, cap) / 100;
+  let y = int(rng, 1, cap) / 100;
+  let guard = 0;
+  while (x === y && guard++ < 100) y = int(rng, 1, cap) / 100;
+  if (x === y) y = x === 0.01 ? 0.02 : 0.01;
   const big = Math.max(x, y);
   return build(
-    rng, "fr-compare-decimals", "easy", "decimal",
+    rng, "fr-compare-decimals", level, "decimal",
     `Which is greater: ${x} or ${y}?`,
     String(big),
     "Line up the decimal points and compare the tenths place first.",
@@ -227,12 +359,23 @@ function genCompareDecimals(rng: Rng): Problem {
 }
 
 /* 11. Area of rectangles */
-function genArea(rng: Rng): Problem {
-  const l = int(rng, 2, 12);
-  const w = int(rng, 2, 12);
-  const difficulty: Difficulty = l * w > 100 ? "medium" : "easy";
+function genArea(rng: Rng, level: Level): Problem {
+  const l = pickByLevel(rng, level, [
+    [2, 5],
+    [2, 12],
+    [3, 20],
+    [4, 30],
+    [6, 60],
+  ]);
+  const w = pickByLevel(rng, level, [
+    [2, 5],
+    [2, 12],
+    [3, 20],
+    [4, 30],
+    [6, 60],
+  ]);
   return build(
-    rng, "md-area", difficulty, "integer",
+    rng, "md-area", level, "integer",
     `A rectangle is ${l} cm long and ${w} cm wide. What is its area in square centimeters?`,
     String(l * w),
     "Area of a rectangle = length × width.",
@@ -242,11 +385,23 @@ function genArea(rng: Rng): Problem {
 }
 
 /* 12. Perimeter of rectangles */
-function genPerimeter(rng: Rng): Problem {
-  const l = int(rng, 2, 12);
-  const w = int(rng, 2, 12);
+function genPerimeter(rng: Rng, level: Level): Problem {
+  const l = pickByLevel(rng, level, [
+    [2, 5],
+    [2, 12],
+    [3, 20],
+    [4, 30],
+    [6, 60],
+  ]);
+  const w = pickByLevel(rng, level, [
+    [2, 5],
+    [2, 12],
+    [3, 20],
+    [4, 30],
+    [6, 60],
+  ]);
   return build(
-    rng, "md-perimeter", "easy", "integer",
+    rng, "md-perimeter", level, "integer",
     `A rectangle is ${l} cm long and ${w} cm wide. What is its perimeter in centimeters?`,
     String(2 * (l + w)),
     "Perimeter adds up all four sides: long + wide + long + wide.",
@@ -263,15 +418,22 @@ const PLACES: { name: string; exp: number }[] = [
   { name: "thousands", exp: 3 },
   { name: "ten-thousands", exp: 4 },
   { name: "hundred-thousands", exp: 5 },
+  { name: "millions", exp: 6 },
 ];
 
-function genPlaceValue(rng: Rng): Problem {
-  const n = int(rng, 1000, 999999);
+function genPlaceValue(rng: Rng, level: Level): Problem {
+  const n = pickByLevel(rng, level, [
+    [100, 999],
+    [1000, 9999],
+    [1000, 99999],
+    [10000, 999999],
+    [100000, 9999999],
+  ]);
   const digits = String(n).length;
   const p = PLACES[int(rng, 0, digits - 1)];
   const digit = Math.floor(n / 10 ** p.exp) % 10;
   return build(
-    rng, "bt-place-value", "easy", "integer",
+    rng, "bt-place-value", level, "integer",
     `In the number ${fmt(n)}, which digit is in the ${p.name} place?`,
     String(digit),
     `Write the number and label each digit starting from the right: ones, tens, hundreds, …`,
@@ -287,12 +449,24 @@ const ROUND_PLACES: { name: string; f: number }[] = [
   { name: "thousand", f: 1000 },
 ];
 
-function genRounding(rng: Rng): Problem {
-  const p = ROUND_PLACES[int(rng, 0, 2)];
-  const n = p.f === 1000 ? int(rng, 1000, 9999) : int(rng, 100, 9999);
+function genRounding(rng: Rng, level: Level): Problem {
+  const p = ROUND_PLACES[pickByLevel(rng, level, [
+    [0, 0],
+    [0, 1],
+    [0, 2],
+    [1, 2],
+    [2, 2],
+  ])];
+  const n = pickByLevel(rng, level, [
+    [11, 99],
+    [100, 9999],
+    [1000, 99999],
+    [10000, 999999],
+    [100000, 9999999],
+  ]);
   const answer = Math.round(n / p.f) * p.f;
   return build(
-    rng, "bt-rounding", "medium", "integer",
+    rng, "bt-rounding", level, "integer",
     `Round ${fmt(n)} to the nearest ${p.name}.`,
     String(answer),
     `Look at the digit just right of the ${p.name}s place: 5 or more rounds up.`,
@@ -304,10 +478,22 @@ function genRounding(rng: Rng): Problem {
 /* ---------- Grade 5 ---------- */
 
 /* 15. Add fractions, unlike denominators */
-function genAddUnlike(rng: Rng): Problem {
-  let d1 = int(rng, 2, 8);
-  let d2 = int(rng, 2, 8);
-  if (d2 === d1) d2 = (d1 % 8) + 1;
+function genAddUnlike(rng: Rng, level: Level): Problem {
+  let d1 = pickByLevel(rng, level, [
+    [2, 4],
+    [2, 8],
+    [3, 10],
+    [4, 12],
+    [6, 12],
+  ]);
+  let d2 = pickByLevel(rng, level, [
+    [2, 4],
+    [2, 8],
+    [3, 10],
+    [4, 12],
+    [6, 12],
+  ]);
+  if (d2 === d1) d2 = d1 + 1;
   const a = int(rng, 1, d1 - 1);
   const b = int(rng, 1, d2 - 1);
   const num = a * d2 + b * d1;
@@ -315,7 +501,7 @@ function genAddUnlike(rng: Rng): Problem {
   const g = gcd(num, den);
   const answer = g > 1 ? `${num / g}/${den / g}` : `${num}/${den}`;
   return build(
-    rng, "fr-add-unlike-5", "medium", "fraction",
+    rng, "fr-add-unlike-5", level, "fraction",
     `What is ${a}/${d1} + ${b}/${d2}? Give your answer as a fraction.`,
     answer,
     `First make the bottoms match: use ${den} as a common denominator (${d1} × ${d2}).`,
@@ -325,10 +511,22 @@ function genAddUnlike(rng: Rng): Problem {
 }
 
 /* 16. Subtract fractions, unlike denominators */
-function genSubUnlike(rng: Rng): Problem {
-  let d1 = int(rng, 2, 8);
-  let d2 = int(rng, 2, 8);
-  if (d2 === d1) d2 = (d1 % 8) + 1;
+function genSubUnlike(rng: Rng, level: Level): Problem {
+  let d1 = pickByLevel(rng, level, [
+    [2, 4],
+    [2, 8],
+    [3, 10],
+    [4, 12],
+    [6, 12],
+  ]);
+  let d2 = pickByLevel(rng, level, [
+    [2, 4],
+    [2, 8],
+    [3, 10],
+    [4, 12],
+    [6, 12],
+  ]);
+  if (d2 === d1) d2 = d1 + 1;
   let a = int(rng, 1, d1 - 1);
   let b = int(rng, 1, d2 - 1);
   // Keep the result positive: ensure a/d1 >= b/d2, swapping when needed.
@@ -349,7 +547,7 @@ function genSubUnlike(rng: Rng): Problem {
   const g = gcd(num, den);
   const answer = g > 1 ? `${num / g}/${den / g}` : `${num}/${den}`;
   return build(
-    rng, "fr-sub-unlike-5", "medium", "fraction",
+    rng, "fr-sub-unlike-5", level, "fraction",
     `What is ${a}/${d1} - ${b}/${d2}? Give your answer as a fraction.`,
     answer,
     `First make the bottoms match: use ${den} as a common denominator (${d1} × ${d2}).`,
@@ -359,17 +557,29 @@ function genSubUnlike(rng: Rng): Problem {
 }
 
 /* 17. Multiply fraction by whole number (grade-5 range, may scale past one whole) */
-function genMultWholeAdv(rng: Rng): Problem {
-  const d = int(rng, 2, 8);
+function genMultWholeAdv(rng: Rng, level: Level): Problem {
+  const d = pickByLevel(rng, level, [
+    [2, 4],
+    [2, 8],
+    [3, 10],
+    [4, 12],
+    [6, 12],
+  ]);
   const a = int(rng, 1, d - 1);
-  const w = int(rng, 3, 9);
+  const w = pickByLevel(rng, level, [
+    [2, 4],
+    [3, 9],
+    [4, 12],
+    [6, 15],
+    [8, 20],
+  ]);
   const num = a * w;
   const g = gcd(num, d);
   const rn = num / g;
   const rd = d / g;
   const answer = rd === 1 ? String(rn) : `${rn}/${rd}`;
   return build(
-    rng, "fr-mult-whole-adv", "medium", "fraction",
+    rng, "fr-mult-whole-adv", level, "fraction",
     `What is ${a}/${d} × ${w}? Give your answer as a fraction (a whole number is fine).`,
     answer,
     `Multiply the top by ${w} and keep the bottom: (${a} × ${w})/${d}.`,
@@ -379,9 +589,21 @@ function genMultWholeAdv(rng: Rng): Problem {
 }
 
 /* 18. Add & subtract decimals to hundredths */
-function genDecAddSub(rng: Rng): Problem {
-  const c1 = int(rng, 101, 9999);
-  const c2 = int(rng, 101, 9999);
+function genDecAddSub(rng: Rng, level: Level): Problem {
+  const c1 = pickByLevel(rng, level, [
+    [101, 999],
+    [101, 9999],
+    [1001, 99999],
+    [10000, 999999],
+    [100000, 9999999],
+  ]);
+  const c2 = pickByLevel(rng, level, [
+    [101, 999],
+    [101, 9999],
+    [1001, 99999],
+    [10000, 999999],
+    [100000, 9999999],
+  ]);
   const plus = rng() < 0.5;
   const hi = Math.max(c1, c2);
   const lo = Math.min(c1, c2);
@@ -393,7 +615,7 @@ function genDecAddSub(rng: Rng): Problem {
   const op = plus ? "+" : "-";
   const answer = (cents / 100).toString();
   return build(
-    rng, "bt-dec-add-sub", "medium", "decimal",
+    rng, "bt-dec-add-sub", level, "decimal",
     `What is ${top} ${op} ${bottom}?`,
     answer,
     `Line up the decimal points, then ${plus ? "add" : "subtract"} as if they were whole numbers.`,
@@ -405,14 +627,26 @@ function genDecAddSub(rng: Rng): Problem {
 /* 19. Multiply decimals by powers of 10 */
 const DEC_POW10 = [10, 100, 1000];
 
-function genDecMultPow10(rng: Rng): Problem {
-  const cents = int(rng, 101, 9999);
-  const k = DEC_POW10[int(rng, 0, DEC_POW10.length - 1)];
+function genDecMultPow10(rng: Rng, level: Level): Problem {
+  const cents = pickByLevel(rng, level, [
+    [101, 999],
+    [101, 9999],
+    [101, 9999],
+    [1001, 99999],
+    [10001, 999999],
+  ]);
+  const k = DEC_POW10[pickByLevel(rng, level, [
+    [0, 0],
+    [0, 1],
+    [0, 2],
+    [1, 2],
+    [1, 2],
+  ])];
   const x = (cents / 100).toString();
   const answer = ((cents * k) / 100).toString();
   const places = k === 10 ? "one place" : k === 100 ? "two places" : "three places";
   return build(
-    rng, "bt-dec-mult-pow10", "easy", "decimal",
+    rng, "bt-dec-mult-pow10", level, "decimal",
     `What is ${x} × ${k}?`,
     answer,
     `Multiplying by ${k} shifts every digit left; the point moves ${places} to the right.`,
@@ -422,13 +656,30 @@ function genDecMultPow10(rng: Rng): Problem {
 }
 
 /* 20. Volume of rectangular prisms */
-function genVolume(rng: Rng): Problem {
-  const l = int(rng, 2, 9);
-  const w = int(rng, 2, 9);
-  const h = int(rng, 2, 9);
-  const difficulty: Difficulty = l * w * h > 200 ? "medium" : "easy";
+function genVolume(rng: Rng, level: Level): Problem {
+  const l = pickByLevel(rng, level, [
+    [2, 4],
+    [2, 9],
+    [3, 12],
+    [4, 16],
+    [5, 25],
+  ]);
+  const w = pickByLevel(rng, level, [
+    [2, 4],
+    [2, 9],
+    [3, 12],
+    [4, 16],
+    [5, 25],
+  ]);
+  const h = pickByLevel(rng, level, [
+    [2, 4],
+    [2, 9],
+    [3, 12],
+    [4, 16],
+    [5, 25],
+  ]);
   return build(
-    rng, "md-volume", difficulty, "integer",
+    rng, "md-volume", level, "integer",
     `A box is ${l} cm long, ${w} cm wide, and ${h} cm tall. What is its volume in cubic centimeters?`,
     String(l * w * h),
     `Volume of a box = length × width × height. Start with ${l} × ${w}.`,
@@ -438,15 +689,33 @@ function genVolume(rng: Rng): Problem {
 }
 
 /* 21. Order of operations basics */
-function genOrderOps(rng: Rng): Problem {
-  const a = int(rng, 2, 9);
-  const b = int(rng, 2, 9);
-  const c = int(rng, 2, 9);
+function genOrderOps(rng: Rng, level: Level): Problem {
+  const a = pickByLevel(rng, level, [
+    [2, 5],
+    [2, 9],
+    [3, 12],
+    [4, 15],
+    [5, 20],
+  ]);
+  const b = pickByLevel(rng, level, [
+    [2, 5],
+    [2, 9],
+    [3, 12],
+    [4, 15],
+    [5, 20],
+  ]);
+  const c = pickByLevel(rng, level, [
+    [2, 5],
+    [2, 9],
+    [3, 12],
+    [4, 15],
+    [5, 20],
+  ]);
   const paren = rng() < 0.5;
   const text = paren ? `What is (${a} + ${b}) × ${c}?` : `What is ${a} + ${b} × ${c}?`;
   const answer = paren ? (a + b) * c : a + b * c;
   return build(
-    rng, "oa-order-ops", "medium", "integer",
+    rng, "oa-order-ops", level, "integer",
     text,
     String(answer),
     paren ? "Parentheses first: solve inside them before multiplying." : "Multiply before adding: do the × step first.",
@@ -458,11 +727,23 @@ function genOrderOps(rng: Rng): Problem {
 }
 
 /* 22. Coordinate plane basics (first quadrant) */
-function genCoordPlane(rng: Rng): Problem {
-  const x = int(rng, 1, 9);
-  const y = int(rng, 1, 9);
+function genCoordPlane(rng: Rng, level: Level): Problem {
+  const x = pickByLevel(rng, level, [
+    [1, 3],
+    [1, 9],
+    [2, 12],
+    [3, 15],
+    [5, 20],
+  ]);
+  const y = pickByLevel(rng, level, [
+    [1, 3],
+    [1, 9],
+    [2, 12],
+    [3, 15],
+    [5, 20],
+  ]);
   return build(
-    rng, "geo-coord-plane", "easy", "text",
+    rng, "geo-coord-plane", level, "text",
     `Point A is ${x} units to the right and ${y} units up from the origin (0, 0). What are its coordinates? Write them like this: x, y.`,
     `${x}, ${y}`,
     "The first number counts steps right (x), the second counts steps up (y).",
@@ -472,12 +753,20 @@ function genCoordPlane(rng: Rng): Problem {
 }
 /* ---------- Grade 4, batch 2: broader curriculum ---------- */
 
-/* 23. Angle types from degrees */
-function genAngleTypes(rng: Rng): Problem {
-  const deg = int(rng, 1, 179);
+/* 23. Angle types from degrees.
+   Difficulty scales by crowding the 90° boundary: at low levels the angle sits
+   far from a right angle, at high levels it lands within a few degrees of it. */
+function genAngleTypes(rng: Rng, level: Level): Problem {
+  const deg = pickByLevel(rng, level, [
+    [20, 160],
+    [1, 179],
+    [1, 179],
+    [50, 130],
+    [75, 105],
+  ]);
   const name = deg === 90 ? "right" : deg < 90 ? "acute" : "obtuse";
   return build(
-    rng, "geo-angles-types", "easy", "text",
+    rng, "geo-angles-types", level, "text",
     `An angle measures ${deg} degrees. Is it acute, right, or obtuse?`,
     name,
     deg === 90
@@ -495,24 +784,31 @@ function genAngleTypes(rng: Rng): Problem {
 }
 
 /* 24. Classify triangles by sides or by angles */
-function genTriangles(rng: Rng): Problem {
+function genTriangles(rng: Rng, level: Level): Problem {
   if (rng() < 0.5) {
+    const sideMax = pickByLevel(rng, level, [
+      [6, 6],
+      [12, 12],
+      [16, 16],
+      [22, 22],
+      [30, 30],
+    ]);
     const kind = int(rng, 0, 2);
     let a = 0;
     let b = 0;
     let c = 0;
     let name = "";
     if (kind === 0) {
-      const s = int(rng, 3, 12);
+      const s = int(rng, 3, sideMax);
       a = s;
       b = s;
       c = s;
       name = "equilateral";
     } else if (kind === 1) {
-      const s = int(rng, 4, 12);
-      let base = int(rng, 3, 12);
+      const s = int(rng, 4, sideMax);
+      let base = int(rng, 3, sideMax);
       let guard = 0;
-      while ((base === s || base >= 2 * s) && guard++ < 50) base = int(rng, 3, 12);
+      while ((base === s || base >= 2 * s) && guard++ < 50) base = int(rng, 3, sideMax);
       if (base === s || base >= 2 * s) base = s === 4 ? 3 : s - 1;
       a = s;
       b = s;
@@ -524,9 +820,9 @@ function genTriangles(rng: Rng): Problem {
       b = 5;
       c = 6;
       do {
-        a = int(rng, 3, 10);
-        b = int(rng, a + 1, 11);
-        c = int(rng, b + 1, 12);
+        a = int(rng, 3, sideMax - 2);
+        b = int(rng, a + 1, sideMax - 1);
+        c = int(rng, b + 1, sideMax);
         guard++;
       } while (a + b <= c && guard < 100);
       if (a + b <= c) {
@@ -537,7 +833,7 @@ function genTriangles(rng: Rng): Problem {
       name = "scalene";
     }
     return build(
-      rng, "geo-triangles", "easy", "text",
+      rng, "geo-triangles", level, "text",
       `A triangle has side lengths ${a} cm, ${b} cm, and ${c} cm. Is it equilateral, isosceles, or scalene?`,
       name,
       "Count how many of the three sides match: all three, exactly two, or none.",
@@ -552,12 +848,25 @@ function genTriangles(rng: Rng): Problem {
   let name = "acute";
   if (kind === 0) {
     x = 90;
-    y = int(rng, 20, 70);
+    y = pickByLevel(rng, level, [
+      [30, 60],
+      [20, 70],
+      [20, 70],
+      [15, 75],
+      [10, 80],
+    ]);
     z = 90 - y;
     name = "right";
   } else if (kind === 1) {
-    const px = int(rng, 40, 70);
-    const py = int(rng, 40, 70);
+    const max = pickByLevel(rng, level, [
+      [56, 64],
+      [70, 70],
+      [70, 70],
+      [75, 75],
+      [80, 80],
+    ]);
+    const px = int(rng, Math.max(30, 180 - max - 1), max);
+    const py = int(rng, Math.max(30, 180 - max - 1), max);
     const pz = 180 - px - py;
     if (pz > 0 && pz < 90 && px + py > 90) {
       x = px;
@@ -566,8 +875,14 @@ function genTriangles(rng: Rng): Problem {
     }
     name = "acute";
   } else {
-    const px = int(rng, 95, 150);
-    const py = int(rng, 10, Math.min(60, 179 - px - 10));
+    const px = pickByLevel(rng, level, [
+      [100, 130],
+      [95, 150],
+      [95, 150],
+      [100, 155],
+      [110, 160],
+    ]);
+    const py = int(rng, 10, Math.max(10, Math.min(60, 179 - px - 10)));
     const pz = 180 - px - py;
     if (pz > 0 && py < 90 && pz < 90) {
       x = px;
@@ -581,7 +896,7 @@ function genTriangles(rng: Rng): Problem {
     name = "obtuse";
   }
   return build(
-    rng, "geo-triangles", "easy", "text",
+    rng, "geo-triangles", level, "text",
     `A triangle has angles ${x}°, ${y}°, and ${z}°. Is it acute, right, or obtuse?`,
     name,
     "Look for the biggest angle: it decides the triangle's type all by itself.",
@@ -604,10 +919,18 @@ const SYMMETRY_SHAPES: { name: string; lines: number }[] = [
   { name: "scalene triangle", lines: 0 },
 ];
 
-function genSymmetry(rng: Rng): Problem {
-  const shape = SYMMETRY_SHAPES[int(rng, 0, SYMMETRY_SHAPES.length - 1)];
+function genSymmetry(rng: Rng, level: Level): Problem {
+  // Low levels see the familiar, obviously-symmetric shapes; higher levels add
+  // the ambiguous zero/one-line figures (kite, rhombus, parallelogram).
+  const shape = SYMMETRY_SHAPES[pickByLevel(rng, level, [
+    [0, 5],
+    [0, 9],
+    [0, 9],
+    [2, 9],
+    [6, 9],
+  ])];
   return build(
-    rng, "geo-symmetry", "easy", "integer",
+    rng, "geo-symmetry", level, "integer",
     `How many lines of symmetry does a ${shape.name} have?`,
     String(shape.lines),
     "A line of symmetry folds the shape onto itself with both halves matching exactly.",
@@ -627,14 +950,35 @@ function fmtClock(totalMin: number): string {
   return `${h12}:${String(mm).padStart(2, "0")} ${suffix}`;
 }
 
-function genElapsedTime(rng: Rng): Problem {
-  const startH = int(rng, 8, 14);
-  const startM = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55][int(rng, 0, 11)];
+const MINUTE_TICKS = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55];
+const ALL_MINUTES = Array.from({ length: 60 }, (_, i) => i);
+
+function genElapsedTime(rng: Rng, level: Level): Problem {
+  const startH = pickByLevel(rng, level, [
+    [8, 11],
+    [8, 14],
+    [7, 15],
+    [6, 16],
+    [5, 17],
+  ]);
+  const startM = oneByLevel(rng, level, [
+    [0, 30],
+    MINUTE_TICKS,
+    MINUTE_TICKS,
+    ALL_MINUTES,
+    ALL_MINUTES,
+  ]);
   const start = startH * 60 + startM;
-  const dur = int(rng, 15, 180);
+  const dur = pickByLevel(rng, level, [
+    [15, 60],
+    [15, 180],
+    [15, 180],
+    [20, 200],
+    [25, 240],
+  ]);
   const end = start + dur;
   return build(
-    rng, "md-time", "medium", "integer",
+    rng, "md-time", level, "integer",
     `Class starts at ${fmtClock(start)} and ends at ${fmtClock(end)}. How many minutes long is class?`,
     String(dur),
     `Count forward from ${fmtClock(start)} to ${fmtClock(end)}: first reach the next hour, then add the rest.`,
@@ -653,15 +997,29 @@ const NL_PARTS: { d: number; word: string }[] = [
   { d: 8, word: "eighths" },
 ];
 
-function genFractionNumberLine(rng: Rng): Problem {
-  const part = NL_PARTS[int(rng, 0, NL_PARTS.length - 1)];
+const SIMPLE_PARTS = NL_PARTS.filter((p) => p.d <= 4);
+
+function genFractionNumberLine(rng: Rng, level: Level): Problem {
+  const part = oneByLevel(rng, level, [
+    SIMPLE_PARTS,
+    NL_PARTS,
+    NL_PARTS,
+    NL_PARTS,
+    NL_PARTS,
+  ]);
   const d = part.d;
-  const N = int(rng, 1, 3);
+  const N = pickByLevel(rng, level, [
+    [1, 1],
+    [1, 3],
+    [1, 3],
+    [2, 4],
+    [2, 6],
+  ]);
   const t = int(rng, 1, N * d - 1);
   const g = gcd(t, d);
   const answer = d / g === 1 ? String(t / g) : `${t / g}/${d / g}`;
   return build(
-    rng, "fr-mixed-numbers", "medium", "fraction",
+    rng, "fr-mixed-numbers", level, "fraction",
     `A number line from 0 to ${N} is split into ${part.word} (each whole cut into ${d} equal parts). A dot sits at tick ${t} counting from 0. What fraction names that point? Give your answer as a fraction (a whole number is fine).`,
     answer,
     `Each tick is one jump of 1/${d}: tick ${t} means ${t} jumps from 0.`,
@@ -671,15 +1029,21 @@ function genFractionNumberLine(rng: Rng): Problem {
 }
 
 /* 28. Decimal place value (what is the digit worth?) */
-function genDecimalPlaceValue(rng: Rng): Problem {
-  const cents = int(rng, 101, 999);
+function genDecimalPlaceValue(rng: Rng, level: Level): Problem {
+  const cents = pickByLevel(rng, level, [
+    [101, 299],
+    [101, 999],
+    [1001, 9999],
+    [1001, 99999],
+    [10001, 999999],
+  ]);
   const x = (cents / 100).toFixed(2);
   const place = rng() < 0.5 ? "tenths" : "hundredths";
   const digit = place === "tenths" ? Math.floor(cents / 10) % 10 : cents % 10;
   const value = place === "tenths" ? digit / 10 : digit / 100;
   const answer = String(value);
   return build(
-    rng, "fr-decimals-tenths", "easy", "decimal",
+    rng, "fr-decimals-tenths", level, "decimal",
     `In the number ${x}, what is the value of the digit in the ${place} place?`,
     answer,
     `The first place after the point is tenths, the second is hundredths — the ${place} place is ${place === "tenths" ? "first" : "second"} after the point.`,
@@ -689,14 +1053,26 @@ function genDecimalPlaceValue(rng: Rng): Problem {
 }
 
 /* 29. Composite perimeter (rectilinear L-shapes: notch walls replace the cut edge) */
-function genCompositePerimeter(rng: Rng): Problem {
-  const W = int(rng, 5, 12);
-  const H = int(rng, 5, 12);
+function genCompositePerimeter(rng: Rng, level: Level): Problem {
+  const W = pickByLevel(rng, level, [
+    [5, 8],
+    [5, 12],
+    [6, 20],
+    [8, 30],
+    [10, 50],
+  ]);
+  const H = pickByLevel(rng, level, [
+    [5, 8],
+    [5, 12],
+    [6, 20],
+    [8, 30],
+    [10, 50],
+  ]);
   const a = int(rng, 1, W - 1);
   const b = int(rng, 1, H - 1);
   const answer = 2 * (W + H);
   return build(
-    rng, "geo-composite-shapes", "medium", "integer",
+    rng, "geo-composite-shapes", level, "integer",
     `An L-shaped patio is made from a ${W} m by ${H} m rectangle with a ${a} m by ${b} m corner piece removed. What is its perimeter in meters?`,
     String(answer),
     `Walk the edge: the missing corner adds two inner walls, but each one matches the outer edge it replaced.`,
@@ -708,7 +1084,7 @@ function genCompositePerimeter(rng: Rng): Problem {
 /* 30. Multi-step word problems (2 steps, all four ops, validated numbers) */
 const WORD_NAMES = ["Maya", "Liam", "Sofia", "Noah", "Ella", "Omar"];
 
-function genMultistepWord(rng: Rng): Problem {
+function genMultistepWord(rng: Rng, level: Level): Problem {
   const pattern = int(rng, 0, 5);
   const name = WORD_NAMES[int(rng, 0, WORD_NAMES.length - 1)];
   let text = "";
@@ -718,9 +1094,9 @@ function genMultistepWord(rng: Rng): Problem {
   let expl = "";
   if (pattern === 0) {
     // (a + b) x c
-    const a = int(rng, 2, 12);
-    const b = int(rng, 2, 12);
-    const c = int(rng, 2, 6);
+    const a = pickByLevel(rng, level, [[2, 6], [2, 12], [2, 12], [3, 18], [4, 25]]);
+    const b = pickByLevel(rng, level, [[2, 6], [2, 12], [2, 12], [3, 18], [4, 25]]);
+    const c = pickByLevel(rng, level, [[1, 3], [2, 6], [2, 6], [3, 9], [4, 12]]);
     answer = (a + b) * c;
     text = `${name} packs party bags. Each bag gets ${a} stickers and ${b} candies. ${name} makes ${c} bags. How many items are used in all?`;
     h1 = `First find what goes in ONE bag: ${a} + ${b}.`;
@@ -728,9 +1104,9 @@ function genMultistepWord(rng: Rng): Problem {
     expl = `Each bag holds ${a} + ${b} = ${a + b} items. ${a + b} × ${c} = ${answer} items in all. Two steps: add first, then multiply.`;
   } else if (pattern === 1) {
     // a x b + c
-    const a = int(rng, 2, 9);
-    const b = int(rng, 2, 9);
-    const c = int(rng, 5, 50);
+    const a = pickByLevel(rng, level, [[2, 5], [2, 9], [2, 9], [3, 12], [4, 15]]);
+    const b = pickByLevel(rng, level, [[2, 5], [2, 9], [2, 9], [3, 12], [4, 15]]);
+    const c = pickByLevel(rng, level, [[5, 20], [5, 50], [5, 50], [20, 100], [50, 200]]);
     answer = a * b + c;
     text = `A shop sells boxes with ${a} muffins each. ${name} buys ${b} boxes plus ${c} extra muffins. How many muffins does ${name} have?`;
     h1 = `First find the muffins inside the boxes: ${a} × ${b}.`;
@@ -738,9 +1114,9 @@ function genMultistepWord(rng: Rng): Problem {
     expl = `${a} × ${b} = ${a * b} muffins in boxes, plus ${c} extra = ${answer} muffins. Multiply first, then add.`;
   } else if (pattern === 2) {
     // a - b x c (a validated above b*c so the result stays positive)
-    const b = int(rng, 2, 9);
-    const c = int(rng, 2, 9);
-    const a = b * c + int(rng, 5, 60);
+    const b = pickByLevel(rng, level, [[2, 5], [2, 9], [2, 9], [3, 12], [4, 15]]);
+    const c = pickByLevel(rng, level, [[2, 5], [2, 9], [2, 9], [3, 12], [4, 15]]);
+    const a = b * c + pickByLevel(rng, level, [[5, 20], [5, 60], [5, 60], [20, 100], [50, 200]]);
     answer = a - b * c;
     text = `${name} has $${a}. ${name} buys ${c} books for $${b} each. How many dollars are left?`;
     h1 = `First find the total cost: ${c} books × $${b} each.`;
@@ -748,8 +1124,8 @@ function genMultistepWord(rng: Rng): Problem {
     expl = `Books cost ${c} × $${b} = $${b * c}. $${a} − $${b * c} = $${answer} left. Multiply first, then subtract.`;
   } else if (pattern === 3) {
     // (a + b) / c exact (total validated as c*q)
-    const c = int(rng, 2, 6);
-    const q = int(rng, 3, 12);
+    const c = pickByLevel(rng, level, [[2, 4], [2, 6], [2, 6], [3, 9], [4, 12]]);
+    const q = pickByLevel(rng, level, [[3, 6], [3, 12], [3, 12], [5, 20], [6, 30]]);
     const total = c * q;
     const a = int(rng, 1, total - 1);
     const b = total - a;
@@ -760,9 +1136,9 @@ function genMultistepWord(rng: Rng): Problem {
     expl = `${a} + ${b} = ${total} shells. ${total} ÷ ${c} = ${answer} shells per friend. Add first, then divide.`;
   } else if (pattern === 4) {
     // (a - b) / c exact (a validated as b + q*c)
-    const c = int(rng, 2, 6);
-    const q = int(rng, 3, 15);
-    const b = int(rng, 5, 40);
+    const c = pickByLevel(rng, level, [[2, 4], [2, 6], [2, 6], [3, 9], [4, 12]]);
+    const q = pickByLevel(rng, level, [[3, 8], [3, 15], [3, 15], [6, 25], [8, 40]]);
+    const b = pickByLevel(rng, level, [[5, 15], [5, 40], [5, 40], [10, 80], [20, 150]]);
     const a = b + q * c;
     answer = q;
     text = `A baker makes ${a} cookies, sells ${b}, then packs the rest into boxes of ${c}. How many boxes are filled?`;
@@ -771,8 +1147,8 @@ function genMultistepWord(rng: Rng): Problem {
     expl = `${a} − ${b} = ${q * c} cookies left. ${q * c} ÷ ${c} = ${answer} boxes. Subtract first, then divide.`;
   } else {
     // a x b - c (c validated below a*b so the result stays positive)
-    const a = int(rng, 4, 12);
-    const b = int(rng, 4, 12);
+    const a = pickByLevel(rng, level, [[4, 6], [4, 12], [4, 12], [5, 20], [6, 30]]);
+    const b = pickByLevel(rng, level, [[4, 6], [4, 12], [4, 12], [5, 20], [6, 30]]);
     const c = int(rng, 5, a * b - 5);
     answer = a * b - c;
     text = `A garden has ${a} rows with ${b} plants each. ${c} plants are moved elsewhere. How many plants remain?`;
@@ -780,20 +1156,27 @@ function genMultistepWord(rng: Rng): Problem {
     h2 = `Take away the ${c} moved plants: ${a * b} − ${c}.`;
     expl = `${a} × ${b} = ${a * b} plants. ${a * b} − ${c} = ${answer} plants remain. Multiply first, then subtract.`;
   }
-  return build(rng, "oa-multistep-word", "medium", "integer", text, String(answer), h1, h2, expl);
+  return build(rng, "oa-multistep-word", level, "integer", text, String(answer), h1, h2, expl);
 }
 
 /* 31. Comparing fractions with visuals (benchmarks, pies, cross-multiplication) */
-function genCompareFractions(rng: Rng): Problem {
+function genCompareFractions(rng: Rng, level: Level): Problem {
+  const dMax = pickByLevel(rng, level, [
+    [5, 5],
+    [12, 12],
+    [15, 15],
+    [18, 18],
+    [20, 20],
+  ]);
   let d1 = 2;
   let d2 = 3;
   let a = 1;
   let b = 2;
   let guard = 0;
   do {
-    d1 = int(rng, 2, 12);
-    d2 = int(rng, 2, 12);
-    if (d2 === d1) d2 = d1 === 12 ? 11 : d1 + 1;
+    d1 = int(rng, 2, dMax);
+    d2 = int(rng, 2, dMax);
+    if (d2 === d1) d2 = d1 === dMax ? dMax - 1 : d1 + 1;
     a = int(rng, 1, d1 - 1);
     b = int(rng, 1, d2 - 1);
     guard++;
@@ -807,7 +1190,7 @@ function genCompareFractions(rng: Rng): Problem {
   const leftBigger = a * d2 > b * d1;
   const answer = leftBigger ? `${a}/${d1}` : `${b}/${d2}`;
   return build(
-    rng, "fr-compare", "medium", "text",
+    rng, "fr-compare", level, "text",
     `Which is greater: ${a}/${d1} or ${b}/${d2}? Write the greater fraction.`,
     answer,
     `Picture two same-size pies: one cut into ${d1} slices with ${a} eaten, the other cut into ${d2} slices with ${b} eaten.`,
@@ -816,7 +1199,7 @@ function genCompareFractions(rng: Rng): Problem {
   );
 }
 
-export const GENERATORS: Record<string, Generator> = {
+const CORE_GENERATORS: Record<string, Generator> = {
   "bt-add-multidigit": genAddMulti,
   "bt-sub-multidigit": genSubMulti,
   "oa-mult-1digit": genMultFacts,
@@ -849,10 +1232,13 @@ export const GENERATORS: Record<string, Generator> = {
   "oa-multistep-word": genMultistepWord,
   "fr-compare": genCompareFractions,
 };
+
+/** Extra generators first so the original core entries win on id conflicts. */
+export const GENERATORS: Record<string, Generator> = { ...EXTRA_GENERATORS, ...CORE_GENERATORS };
 export const ALL_SKILLS: string[] = Object.keys(GENERATORS);
 
-/** Grade band per generator skill: grade-4 skills map to 4, new skills map to 5. */
-export const GENERATOR_GRADES: Record<string, 4 | 5> = {
+/** Grade band per core skill: grade-4 skills map to 4, new skills map to 5. */
+const CORE_GRADES: Record<string, 4 | 5> = {
   "bt-add-multidigit": 4,
   "bt-sub-multidigit": 4,
   "oa-mult-1digit": 4,
@@ -886,19 +1272,22 @@ export const GENERATOR_GRADES: Record<string, 4 | 5> = {
   "fr-compare": 4,
 };
 
+/** Extra grade flags first so the original core entries win on id conflicts. */
+export const GENERATOR_GRADES: Record<string, 4 | 5> = { ...EXTRA_GRADES, ...CORE_GRADES };
+
 /** Grade band for a generator skill id (defaults to 4 for unknown ids). */
 export function generatorGradeFor(skillId: string): 4 | 5 {
   return GENERATOR_GRADES[skillId] ?? 4;
 }
 
 /**
- * Generate one problem for a skill from a seed. Same (skillId, seed) always
- * yields the same problem. Throws on unknown skill ids.
+ * Generate one problem for a skill from a seed and level. Same
+ * (skillId, seed, level) always yields the same problem; the problem's own
+ * difficulty is computed by its generator from that level. Throws on unknown
+ * skill ids.
  */
-export function generateProblem(skillId: string, seed = 1, difficulty?: Difficulty): Problem {
+export function generateProblem(skillId: string, seed = 1, level: Level = DEFAULT_LEVEL): Problem {
   const gen = GENERATORS[skillId];
   if (!gen) throw new Error(`Unknown skill: ${skillId}`);
-  const problem = gen(mulberry32(seed));
-  if (difficulty !== undefined) problem.difficulty = difficulty;
-  return problem;
+  return gen(mulberry32(seed), level);
 }

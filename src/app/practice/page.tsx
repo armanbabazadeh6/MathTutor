@@ -2,10 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { PageFade } from "@/components/effects/PageFade";
-import { DuoCard } from "@/components/duo/Card";
-import { ChunkyButton } from "@/components/duo/ChunkyButton";
-import { Character } from "@/components/duo/Character";
+import { ListSkeleton, PageFade } from "@/components/effects";
+import { ChunkyButton, EmptyState } from "@/components/duo";
 import {
   QUEST_ASSIGNMENT_PREFIX,
   getDailyQuest,
@@ -25,33 +23,41 @@ export default function PracticePage() {
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    setAssignment(loadAssignment());
+    let stored: AssignmentState | null = null;
+    try {
+      stored = loadAssignment();
+    } catch {
+      // A broken read means the same thing as no practice. Fall through to the
+      // empty state so the kid never sits on a loading screen.
+      stored = null;
+    }
+    setAssignment(stored);
     setLoaded(true);
   }, []);
 
   if (!loaded) {
     return (
-      <main className="mx-auto w-full max-w-3xl px-5 py-8">
-        <p className="text-kid-lg font-bold text-muted" role="status">
-          Getting your practice ready… ⭐
-        </p>
+      <main className="mt-shell mt-shell-nav flex min-h-screen flex-col justify-between gap-5 pt-6">
+        <ListSkeleton rows={3} label="Getting your practice ready" />
+        <StudentNav />
       </main>
     );
   }
 
   if (!assignment) {
     return (
-      <main className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-5 py-8">
+      <main className="mt-shell mt-shell-nav flex min-h-screen flex-col justify-between gap-5 pt-6">
         <PageFade>
-          <DuoCard
+          <EmptyState
             title="No practice yet"
-            subtitle="Pick a topic first!"
-            icon={<Character pose="think" size={72} label="Mascot waiting for a topic" />}
-          >
-            <ChunkyButton size="lg" fullWidth onClick={() => router.push("/")}>
-              Back to Today ☀️
-            </ChunkyButton>
-          </DuoCard>
+            body="Pick a topic first and we'll line up your problems."
+            pose="think"
+            action={
+              <ChunkyButton size="lg" onClick={() => router.push("/")}>
+                Back to Today ☀️
+              </ChunkyButton>
+            }
+          />
         </PageFade>
         <StudentNav />
       </main>
@@ -59,7 +65,7 @@ export default function PracticePage() {
   }
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-3xl flex-col gap-5 px-5 pb-8 pt-6 md:max-w-4xl">
+    <main className="mt-shell mt-shell-nav flex min-h-screen flex-col justify-between gap-5 pt-6">
       <ProblemPlayer
         assignment={assignment}
         onComplete={(result) => {

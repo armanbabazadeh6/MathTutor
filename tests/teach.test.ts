@@ -5,15 +5,40 @@ import { grade } from "../src/lib/math/grading";
 import { buildLesson, LESSON_SKILLS, isLessonSupported } from "../src/lib/teach/lessons";
 import type { Problem } from "../src/lib/math/types";
 
+/**
+ * Every member of the `VisualModel` union in `src/lib/visual/models.ts`.
+ * Duplicated on purpose: a change to that union should fail this test.
+ */
+const VISUAL_KINDS = [
+  "fraction-bar",
+  "number-line",
+  "area-model",
+  "place-value",
+  "coordinate-grid",
+  "angle",
+  "unit-cubes",
+  "clock",
+  "polygon",
+  "symmetry",
+  "bar-graph",
+  "number-chips",
+];
+
 function lessonFor(skill: string, seed = 7) {
   const problem = generateProblem(skill, seed);
   return { problem, lesson: buildLesson(problem) };
+}
+
+/** A problem with no digits at all cannot ground its steps in failed numbers. */
+function hasDigits(problem: Problem): boolean {
+  return /\d/.test(problem.text + " " + problem.answer);
 }
 
 function bodyAndNumbersContainFailed(problem: Problem, seed = 7): void {
   void seed;
   const lesson = buildLesson(problem);
   const hay = (problem.text + " " + problem.answer).replace(/,/g, "");
+  if (!/\d/.test(hay)) return;
   for (const s of lesson.steps) {
     assert.ok(s.workedNumbers.length > 0, `step "${s.title}" has no workedNumbers`);
     const refsFailed = s.workedNumbers.some((n) => hay.includes(String(n).replace(/,/g, "")));
@@ -40,8 +65,9 @@ for (const skill of ALL_SKILLS) {
     for (const s of lesson.steps) {
       assert.ok(s.title.length > 0);
       assert.ok(s.body.length > 0);
-      assert.ok(["text", "number-line", "break-apart"].includes(s.visual), `bad visual ${s.visual}`);
-      assert.ok(Array.isArray(s.workedNumbers) && s.workedNumbers.length > 0);
+      assert.ok(s.visual === null || VISUAL_KINDS.includes(s.visual.kind), `bad visual ${String(s.visual)}`);
+      assert.ok(Array.isArray(s.workedNumbers));
+      if (hasDigits(problem)) assert.ok(s.workedNumbers.length > 0, `step "${s.title}" has no workedNumbers`);
     }
   });
 }
@@ -126,6 +152,25 @@ test("check problem grades via the existing grading fn", () => {
     const { lesson } = lessonFor(skill, 8);
     assert.ok(grade(lesson.checkProblem, lesson.checkProblem.answer), `${skill} canonical answer should grade true`);
     assert.equal(grade(lesson.checkProblem, "zzz-nope-zzz"), false, `${skill} junk should grade false`);
+  }
+});
+
+test("check problem is fresh, not the problem just failed", () => {
+  for (const skill of ALL_SKILLS) {
+    for (let seed = 1; seed <= 5; seed++) {
+      const problem = generateProblem(skill, seed);
+      const lesson = buildLesson(problem);
+      assert.notEqual(
+        lesson.checkProblem.text,
+        problem.text,
+        `${skill}#${seed} reused the failed problem as its check`,
+      );
+      assert.equal(lesson.checkProblem.skill, skill);
+      assert.ok(
+        grade(lesson.checkProblem, lesson.checkProblem.answer),
+        `${skill}#${seed} fresh check answer should grade true`,
+      );
+    }
   }
 });
 

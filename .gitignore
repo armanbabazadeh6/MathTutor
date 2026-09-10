@@ -7,8 +7,8 @@ out/
 build/
 
 # env (keep .env.example)
-.env*.local
-.env
+.env*
+!.env.example
 
 # logs / os
 npm-debug.log*

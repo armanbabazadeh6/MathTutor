@@ -27,7 +27,8 @@ export function SoundToggle() {
       aria-pressed={!muted}
       aria-label={muted ? "Unmute sounds" : "Mute sounds"}
       title={muted ? "Unmute sounds" : "Mute sounds"}
-      className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-white text-2xl shadow-md transition active:scale-95"
+      className="duo-press mt-focus inline-flex h-14 w-14 items-center justify-center rounded-pill border-2 border-line bg-card text-2xl"
+      style={{ boxShadow: "0 3px 0 var(--chunky-shadow)" }}
     >
       <span aria-hidden>{!ready ? "🔊" : muted ? "🔇" : "🔊"}</span>
     </button>

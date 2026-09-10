@@ -34,8 +34,14 @@ import { SKILLS } from "@/lib/skills";
 
 const STORAGE_KEY = "mathtutor.admin.v1";
 
-/** Demo PIN for the AdminGate stub. Real auth replaces this (see AdminGate). */
-export const ADMIN_PIN = "2468";
+/**
+ * Parent-area PIN. This is a speed bump, NOT a security boundary: the value is
+ * inlined into the client bundle and every kid's assignments, points and prize
+ * ledger live in this device's localStorage, so anyone with devtools can read
+ * both. Override with NEXT_PUBLIC_ADMIN_PIN; real auth replaces this entirely
+ * (see AdminGate).
+ */
+export const ADMIN_PIN = process.env.NEXT_PUBLIC_ADMIN_PIN || "2468";
 
 export interface AdminState {
   assignments: AssignmentRecord[];

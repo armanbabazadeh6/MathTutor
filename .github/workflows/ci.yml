@@ -1,19 +1,46 @@
 name: ci
+
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+
+# Least privilege: CI only needs to read the repo.
+permissions:
+  contents: read
+
+# One run per ref: a new push cancels the previous in-flight run.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
+      - name: Restore Next.js build cache
+        uses: actions/cache@v4
+        with:
+          path: .next/cache
+          key: ${{ runner.os }}-nextjs-${{ hashFiles('package-lock.json') }}-${{ hashFiles('src/**', 'public/**') }}
+          restore-keys: |
+            ${{ runner.os }}-nextjs-${{ hashFiles('package-lock.json') }}-
       - run: npm ci
-      - run: npx tsc --noEmit
+      - run: npm run typecheck
+      - run: npm run lint
       - run: npm test
+      # Blocking only when it passes: this tree is pinned to Next 14 (React 18),
+      # and the remaining advisories (next, @next/eslint-plugin-next, glob,
+      # nested postcss) are only fixed by next@16, a breaking upgrade.
+      # Re-check after any dependency bump.
+      - name: npm audit
+        run: npm audit --audit-level=high
+        continue-on-error: true
       - run: npm run build

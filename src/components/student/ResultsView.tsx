@@ -7,10 +7,12 @@ import { BackButton } from "@/components/student/BackButton";
 import { DuoCard } from "@/components/duo/Card";
 import { ChunkyButton } from "@/components/duo/ChunkyButton";
 import { Character } from "@/components/duo/Character";
+import { ProgressBar } from "@/components/duo/ProgressBar";
 import { StreakFlame } from "@/components/duo/StreakFlame";
 import { GemCounter } from "@/components/duo/GemCounter";
+import { Badge } from "@/components/ui/Badge";
 import { badgeById } from "@/lib/session";
-import type { PracticeResult, ProgressState } from "@/lib/session";
+import type { ProblemAttempt, PracticeResult, ProgressState } from "@/lib/session";
 
 export function ResultsView({
   result,
@@ -37,12 +39,18 @@ export function ResultsView({
         <BackButton href="/" label="Back" />
 
         {/* Celebration overlay */}
-        <div className="flex flex-col items-center gap-2 text-center" role="status" aria-live="polite">
+        <div
+          className="flex flex-col items-center gap-2 text-center"
+          role="status"
+          aria-live="polite"
+        >
           <div className="animate-duo-pop">
             <Character
               pose={pose}
               size={128}
-              label={perfect ? "Mascot cheering for a perfect score" : "Mascot proud of your practice"}
+              label={
+                perfect ? "Mascot cheering for a perfect score" : "Mascot proud of your practice"
+              }
             />
           </div>
           <p aria-hidden className="text-5xl">
@@ -61,9 +69,7 @@ export function ResultsView({
         </div>
 
         {celebrate ? (
-          <ConfettiBurst
-            label={perfect ? "Every one right! Amazing!" : "New prize! Look below!"}
-          />
+          <ConfettiBurst label={perfect ? "Every one right! Amazing!" : "New prize! Look below!"} />
         ) : null}
 
         <DuoCard
@@ -76,24 +82,115 @@ export function ResultsView({
             <p className="font-display text-kid-3xl font-semibold">
               <CountUp value={result.xpEarned} prefix="+" suffix=" stars!" />
             </p>
-            <ChunkyBar value={result.solved} max={result.total} label={`${result.solved} of ${result.total} solved`} />
+            <ProgressBar
+              value={result.solved}
+              max={result.total}
+              label={`${result.solved} of ${result.total} solved`}
+            />
             <div className="flex flex-wrap gap-2">
-              <KidChip label={`${result.accuracy}% first-try`} />
-              <KidChip label={`${progress.xp} stars total`} />
-              <KidChip label={`${progress.sessionsCompleted} practices`} />
+              <Badge label={`${result.accuracy}% first-try`} tone="sky" />
+              <Badge label={`${progress.xp} stars total`} tone="primary" />
+              <Badge label={`${progress.sessionsCompleted} practices`} tone="mint" />
             </div>
           </div>
+        </DuoCard>
+
+        {result.levelChanges.length > 0 ? (
+          <DuoCard title="Levels" subtitle="How your skills moved today" tone="sky">
+            <ul className="mt-stagger flex flex-col gap-3">
+              {result.levelChanges.map((c) => (
+                <li
+                  key={c.skillId}
+                  className="flex items-center gap-3 rounded-2xl border-2 border-line bg-card px-4 py-3"
+                >
+                  <span
+                    aria-hidden
+                    className={`font-display text-kid-xl font-semibold ${
+                      c.direction === "up" ? "text-primaryink" : "text-accentink"
+                    }`}
+                  >
+                    {c.direction === "up" ? "↑" : "↓"}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block font-display text-kid-base font-semibold">
+                      {c.skillName}
+                    </span>
+                    <span className="block text-kid-sm font-semibold text-muted">
+                      Level {c.from} → Level {c.to}
+                    </span>
+                  </span>
+                  <span className="sr-only">
+                    {c.direction === "up" ? "level up" : "level down"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </DuoCard>
+        ) : null}
+
+        <DuoCard title="Every problem" subtitle="One line for each try">
+          <ul className="mt-stagger flex flex-col gap-2">
+            {result.attempts.map((a, i) => (
+              <li
+                key={`${a.problemId}-${i}`}
+                className="flex items-center gap-3 rounded-2xl border-2 border-line bg-card px-4 py-3"
+              >
+                <span aria-hidden className="text-kid-lg">
+                  {a.correctFirstTry ? "⭐" : a.solved ? "✅" : "📖"}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block font-display text-kid-base font-semibold">
+                    {a.skillName}
+                  </span>
+                  <span className="block text-kid-sm font-semibold text-muted">
+                    Level {a.level} · {attemptMarker(a)}
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
         </DuoCard>
 
         <DuoCard title="How you did" subtitle="Right answers per group">
           <ul className="mt-stagger flex flex-col gap-4">
             {result.perDomain.map((d) => (
               <li key={d.domain}>
-                <ChunkyBar value={d.solved} max={d.total} label={`${d.domainName}: ${d.solved}/${d.total}`} />
+                <p className="mb-1 text-kid-sm font-bold">
+                  {d.domainName}: {d.solved}/{d.total}
+                </p>
+                <ProgressBar
+                  value={d.solved}
+                  max={d.total}
+                  label={`${d.domainName}: ${d.solved} of ${d.total} right`}
+                />
               </li>
             ))}
           </ul>
         </DuoCard>
+
+        {result.reteachSkills.length > 0 ? (
+          <DuoCard
+            title="Let's practise again"
+            subtitle="We'll come back to these together"
+            tone="sunny"
+          >
+            <ul className="mt-stagger flex flex-col gap-2">
+              {result.reteachSkills.map((s) => (
+                <li
+                  key={s.skillId}
+                  className="flex items-center gap-3 rounded-2xl border-2 border-sunnydark bg-sunny-soft px-4 py-3 text-sunnyink"
+                >
+                  <span aria-hidden className="text-kid-lg">
+                    📖
+                  </span>
+                  <span className="min-w-0 flex-1 font-display text-kid-base font-semibold">
+                    {s.skillName}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </DuoCard>
+        ) : null}
 
         {newBadges.length > 0 ? (
           <DuoCard title="New prizes!" subtitle="You won these today" tone="mint" shine>
@@ -101,7 +198,7 @@ export function ResultsView({
               {newBadges.map((id) => {
                 const b = badgeById(id);
                 if (!b) return null;
-                return <KidChip key={id} label={`${b.emoji} ${b.name}`} />;
+                return <Badge key={id} label={`${b.emoji} ${b.name}`} tone="sunny" />;
               })}
             </div>
           </DuoCard>
@@ -125,27 +222,9 @@ export function ResultsView({
   );
 }
 
-/** Chunky Duo-style progress bar (visual only). */
-function ChunkyBar({ value, max, label }: { value: number; max: number; label: string }) {
-  const pct = max > 0 ? Math.min(100, Math.round((value / max) * 100)) : 0;
-  return (
-    <div role="progressbar" aria-valuenow={value} aria-valuemin={0} aria-valuemax={max} aria-label={label}>
-      <p className="mb-1 text-kid-sm font-bold">{label}</p>
-      <div className="h-5 overflow-hidden rounded-pill border-2 border-line bg-cream">
-        <div className="h-full rounded-pill bg-primary transition-[width] duration-300" style={{ width: `${pct}%` }} />
-      </div>
-    </div>
-  );
-}
-
-/** Chunky chip (visual only — same label contract as the old badge). */
-function KidChip({ label }: { label: string }) {
-  return (
-    <span
-      className="inline-flex min-h-[44px] items-center rounded-pill border-2 border-line bg-card px-4 py-1 text-kid-sm font-extrabold"
-      style={{ boxShadow: "0 3px 0 var(--chunky-shadow)" }}
-    >
-      {label}
-    </span>
-  );
+/** Kid-facing wording for one attempt — never shaming, and never bare numbers. */
+function attemptMarker(a: ProblemAttempt): string {
+  if (a.correctFirstTry) return "right first try";
+  if (a.solved) return `right after ${a.attemptsUsed} tries`;
+  return "we learned it together";
 }

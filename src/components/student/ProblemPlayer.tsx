@@ -1,12 +1,17 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { Celebration, ConfettiBurst, Shake } from "@/components/effects";
+import { Celebration, ConfettiBurst, LevelUpOverlay, Shake } from "@/components/effects";
 import { PageFade } from "@/components/effects/PageFade";
 import { DuoCard } from "@/components/duo/Card";
+import { Alert } from "@/components/duo/Alert";
 import { ChunkyButton } from "@/components/duo/ChunkyButton";
 import { Character } from "@/components/duo/Character";
 import { HeartBar } from "@/components/duo/HeartBar";
+import { ProgressBar } from "@/components/duo/ProgressBar";
+import { Badge } from "@/components/ui/Badge";
+import { VisualModelView } from "@/components/visuals/VisualModelView";
+import { buildVisual } from "@/lib/visual";
 import {
   checkAnswer,
   isQuestAssignment,
@@ -15,11 +20,16 @@ import {
   recordReteachOutcome,
   xpForResult,
 } from "@/lib/session";
-import type { AssignmentState, GeneratedProblem, PracticeResult, ProblemAttempt } from "@/lib/session";
+import type {
+  AssignmentState,
+  GeneratedProblem,
+  PracticeResult,
+  ProblemAttempt,
+} from "@/lib/session";
 import { ANSWER_INPUT_MODE, ANSWER_KEYPAD_CHARS, appendKeypadChar } from "@/lib/answerInput";
 import { generateProblem } from "@/lib/math/generators";
 import type { Problem } from "@/lib/math/types";
-import { DEFAULT_LEVEL, clampLevel } from "@/lib/plan/levels";
+import { DEFAULT_LEVEL, LEVEL_LABELS, clampLevel } from "@/lib/plan/levels";
 import type { SkillLevel } from "@/lib/plan/levels";
 import { buildLesson } from "@/lib/teach/lessons";
 import type { Lesson } from "@/lib/teach/lessons";
@@ -36,7 +46,9 @@ export function ProblemPlayer({
   const total = assignment.problems.length;
   const [index, setIndex] = useState(0);
   const [input, setInput] = useState("");
-  const [stage, setStage] = useState<"answer" | "wrong1" | "wrong2" | "reveal" | "correct">("answer");
+  const [stage, setStage] = useState<"answer" | "wrong1" | "wrong2" | "reveal" | "correct">(
+    "answer",
+  );
   const [attemptsUsed, setAttemptsUsed] = useState(1);
   const [error, setError] = useState("");
   const attemptsRef = useRef<ProblemAttempt[]>([]);
@@ -45,10 +57,30 @@ export function ProblemPlayer({
   const problem = assignment.problems[index];
   const [followUp, setFollowUp] = useState<GeneratedProblem | null>(null);
   const [lesson, setLesson] = useState<Lesson | null>(null);
+  /** Set when this attempt pushed a skill up a level — drives LevelUpOverlay. */
+  const [levelUp, setLevelUp] = useState<{
+    skillName: string;
+    from: SkillLevel;
+    to: SkillLevel;
+  } | null>(null);
+  /** Set when this attempt dropped a skill a level, so the coach can say so. */
+  const [levelDown, setLevelDown] = useState(false);
+  /** Finished session held back so a last-problem level-up can be seen first. */
+  const [pendingResult, setPendingResult] = useState<PracticeResult | null>(null);
   // Quest assignments count the day streak; free-pick extra practice earns
   // effort stars only (no streak movement). Derived from the assignment id.
   const questMode = isQuestAssignment(assignment);
   const displayProblem = followUp ?? problem;
+  // The picture is derived from the words, never a replacement for them. Null
+  // when a drawing would not help this problem.
+  const visual = useMemo(
+    () =>
+      buildVisual(displayProblem.skillId, {
+        text: displayProblem.prompt,
+        answer: displayProblem.answer,
+      }),
+    [displayProblem.skillId, displayProblem.prompt, displayProblem.answer],
+  );
 
   const advance = useMemo(
     () => (solved: boolean, correctFirstTry: boolean) => {
@@ -66,6 +98,10 @@ export function ProblemPlayer({
         questMode ? undefined : { countStreak: false },
       );
       const levelAfter = outcome.level;
+      // The engine has always returned this; the player used to drop it.
+      if (outcome.promoted)
+        setLevelUp({ skillName: displayProblem.skillName, from: levelBefore, to: levelAfter });
+      setLevelDown(outcome.demoted);
       const record: ProblemAttempt = {
         problemId: displayProblem.id,
         domain: displayProblem.domain,
@@ -78,7 +114,12 @@ export function ProblemPlayer({
         timeMs: now - startRef.current,
         ...(levelAfter === levelBefore
           ? {}
-          : { levelFrom: levelBefore, levelTo: levelAfter, promoted: levelAfter > levelBefore, demoted: levelAfter < levelBefore }),
+          : {
+              levelFrom: levelBefore,
+              levelTo: levelAfter,
+              promoted: levelAfter > levelBefore,
+              demoted: levelAfter < levelBefore,
+            }),
         ...(outcome.reteach ? { needsReteach: true } : {}),
       };
       const all = [...attemptsRef.current, record];
@@ -121,7 +162,7 @@ export function ProblemPlayer({
             reteachSkills.push({ skillId: a.skillId, skillName: a.skillName });
           }
         }
-        onComplete({
+        const result: PracticeResult = {
           assignmentId: assignment.id,
           finishedAt: Date.now(),
           total,
@@ -133,7 +174,11 @@ export function ProblemPlayer({
           attempts: all,
           levelChanges,
           reteachSkills,
-        });
+        };
+        // On the last problem a level-up would be swallowed by the results
+        // screen taking over, so hold the hand-off until the overlay closes.
+        if (outcome.promoted) setPendingResult(result);
+        else onComplete(result);
         return;
       }
       setIndex(index + 1);
@@ -142,9 +187,10 @@ export function ProblemPlayer({
       setStage("answer");
       setAttemptsUsed(1);
       setError("");
+      setLevelDown(false);
       startRef.current = Date.now();
     },
-    [assignment, index, total, onComplete, displayProblem, attemptsUsed, questMode]
+    [assignment, index, total, onComplete, displayProblem, attemptsUsed, questMode],
   );
 
   const submit = () => {
@@ -175,7 +221,15 @@ export function ProblemPlayer({
     }
   };
 
-  const skipAfterReveal = () => advance(false, false);
+  /** Dismiss the celebration. On the last problem, this is what finishes the session. */
+  const closeLevelUp = () => {
+    setLevelUp(null);
+    if (pendingResult) {
+      const finished = pendingResult;
+      setPendingResult(null);
+      onComplete(finished);
+    }
+  };
 
   const startTeach = () => {
     setLesson(buildLesson(toMathProblem(displayProblem)));
@@ -196,11 +250,20 @@ export function ProblemPlayer({
         undefined,
         questMode ? undefined : { countStreak: false },
       );
-      recordReteachOutcome(displayProblem.skillId, true, undefined, questMode ? undefined : { countStreak: false });
+      recordReteachOutcome(
+        displayProblem.skillId,
+        true,
+        undefined,
+        questMode ? undefined : { countStreak: false },
+      );
       // Follow-up check: fresh numbers, same skill, at the (lowered) plan level.
       const session = loadPlanSession();
       const level = clampLevel(session.levels[displayProblem.skillId] ?? DEFAULT_LEVEL);
-      const fresh = generateProblem(displayProblem.skillId, Math.floor(Math.random() * 2 ** 31), level);
+      const fresh = generateProblem(
+        displayProblem.skillId,
+        Math.floor(Math.random() * 2 ** 31),
+        level,
+      );
       setFollowUp(toGeneratedProblem(fresh, level));
       setInput("");
       setStage("answer");
@@ -208,7 +271,12 @@ export function ProblemPlayer({
       setError("");
       startRef.current = Date.now();
     } else {
-      recordReteachOutcome(displayProblem.skillId, false, undefined, questMode ? undefined : { countStreak: false });
+      recordReteachOutcome(
+        displayProblem.skillId,
+        false,
+        undefined,
+        questMode ? undefined : { countStreak: false },
+      );
       advance(false, false);
     }
   };
@@ -216,7 +284,7 @@ export function ProblemPlayer({
   if (lesson) {
     return (
       <div className="flex flex-col gap-5">
-        <ChunkyProgress value={index} max={total} label={`Question ${index + 1} of ${total}`} />
+        <ProgressBar value={index} max={total} label={`Question ${index + 1} of ${total}`} />
         <TeachView lesson={lesson} onComplete={finishTeach} />
       </div>
     );
@@ -225,34 +293,57 @@ export function ProblemPlayer({
   const hearts = Math.max(0, 3 - (attemptsUsed - 1));
   const pose = stage === "correct" ? "cheer" : stage === "answer" ? "happy" : "think";
   const pct = total > 0 ? Math.round((index / total) * 100) : 0;
+  const progressLabel = `Question ${index + 1} of ${total}`;
+  // Per-problem stars, following `xpForResult`'s per-attempt rules: +10 solved,
+  // +5 on the first try. The all-first-try session bonus is counted once, in
+  // ResultsView, so it is deliberately not part of this fly.
+  const xpThisProblem = attemptsUsed === 1 ? 15 : 10;
 
   return (
     <PageFade>
-      <div
-        key={displayProblem.id}
-        className="animate-duo-pop flex flex-col gap-4"
-      >
+      {levelUp ? (
+        <LevelUpOverlay
+          skillName={levelUp.skillName}
+          from={levelUp.from}
+          to={levelUp.to}
+          onClose={closeLevelUp}
+        />
+      ) : null}
+      <div key={displayProblem.id} className="animate-duo-pop flex flex-col gap-4">
         {/* Top bar: progress + hearts */}
         <div className="flex items-center gap-3">
           <div className="flex-1">
-            <ChunkyProgress value={index} max={total} label={`Question ${index + 1} of ${total}`} />
+            <p className="mb-1 font-display text-kid-sm font-semibold text-muted">
+              {progressLabel}
+            </p>
+            <ProgressBar value={index} max={total} label={progressLabel} />
           </div>
           <HeartBar hearts={hearts} max={3} />
         </div>
 
         {/* Mascot coach reacts to every try */}
         <div className="flex items-end gap-3">
-          <Character
-            pose={pose}
-            size={88}
-            label={
-              pose === "cheer"
-                ? "Mascot cheering for your right answer"
-                : pose === "think"
-                  ? "Mascot thinking with you"
-                  : "Mascot ready for the next question"
-            }
-          />
+          <div className="relative shrink-0">
+            <Character
+              pose={pose}
+              size={88}
+              label={
+                pose === "cheer"
+                  ? "Mascot cheering for your right answer"
+                  : pose === "think"
+                    ? "Mascot thinking with you"
+                    : "Mascot ready for the next question"
+              }
+            />
+            {stage === "correct" ? (
+              <span
+                aria-hidden
+                className="mt-xp-fly pointer-events-none absolute -top-1 left-0 right-0 text-center font-display text-kid-xl font-semibold text-primaryink"
+              >
+                +{xpThisProblem}
+              </span>
+            ) : null}
+          </div>
           <div
             className="relative flex-1 rounded-2xl border-2 border-line bg-card px-4 py-3 text-kid-base font-bold"
             role="status"
@@ -266,7 +357,9 @@ export function ProblemPlayer({
             {stage === "correct"
               ? "Yes! You got it! 🎉"
               : stage === "reveal"
-                ? "Let's learn it together. 📖"
+                ? levelDown
+                  ? "Small steps still count. Let's practise this one together. 💪"
+                  : "Let's learn it together. 📖"
                 : stage === "wrong1" || stage === "wrong2"
                   ? "Good try! Use the hint. 💪"
                   : followUp
@@ -278,9 +371,28 @@ export function ProblemPlayer({
         {/* Big chunky answer pad */}
         <DuoCard
           title={displayProblem.prompt}
-          subtitle={`${displayProblem.skillName} · try ${attemptsUsed}${followUp ? " · bonus try 💪" : ""}`}
+          subtitle={`try ${attemptsUsed}${followUp ? " · bonus try 💪" : ""}`}
         >
           <div className="flex flex-col gap-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge label={displayProblem.skillName} tone="sky" />
+              <Badge
+                label={`Level ${displayProblem.level} · ${LEVEL_LABELS[displayProblem.level]}`}
+                tone="sunny"
+              />
+            </div>
+            {displayProblem.intendedSkillId ? (
+              <p className="text-kid-sm font-semibold text-muted">
+                You picked something else — this one is {displayProblem.skillName}.
+              </p>
+            ) : null}
+
+            {visual ? (
+              <div className="rounded-2xl border-2 border-line bg-white p-3">
+                <VisualModelView model={visual} />
+              </div>
+            ) : null}
+
             {stage === "correct" ? (
               <div className="flex flex-col gap-3">
                 <Celebration label={`Correct! ${displayProblem.explanation}`} />
@@ -290,20 +402,40 @@ export function ProblemPlayer({
               <Shake shakeKey={`${displayProblem.id}-${attemptsUsed}`}>
                 <div className="flex flex-col gap-3">
                   {stage === "wrong1" || stage === "wrong2" || stage === "reveal" ? (
-                    <p className="rounded-2xl border-2 border-line bg-cream p-4 text-kid-base font-bold" role="status">
-                      💡 Hint 1: {displayProblem.hint1}
-                    </p>
+                    <div
+                      className="rounded-2xl border-2 border-sunnydark bg-sunny-soft p-4 text-kid-base font-bold text-sunnyink"
+                      role="status"
+                    >
+                      <p className="font-display text-kid-xs font-bold uppercase tracking-wide">
+                        Hint 1
+                      </p>
+                      <p className="mt-1">💡 {displayProblem.hint1}</p>
+                    </div>
                   ) : null}
                   {stage === "wrong2" || stage === "reveal" ? (
-                    <p className="rounded-2xl border-2 border-sunnydark bg-sunny/40 p-4 text-kid-base font-bold" role="status">
-                      💡 Hint 2: {displayProblem.hint2}
-                    </p>
+                    <div
+                      className="rounded-2xl border-2 border-skydark bg-sky-soft p-4 text-kid-base font-bold text-skyink"
+                      role="status"
+                    >
+                      <p className="font-display text-kid-xs font-bold uppercase tracking-wide">
+                        Hint 2
+                      </p>
+                      <p className="mt-1">💡 {displayProblem.hint2}</p>
+                    </div>
                   ) : null}
                   {stage === "reveal" ? (
-                    <p className="rounded-2xl border-2 border-skydark bg-sky/30 p-4 text-kid-base font-bold" role="status">
-                      📖 Let&apos;s learn it: {displayProblem.explanation} The answer was{" "}
-                      <strong>{displayProblem.answer}</strong>.
-                    </p>
+                    <div
+                      className="rounded-2xl border-2 border-coraldark bg-coral-soft p-4 text-kid-base font-bold text-coralink"
+                      role="status"
+                    >
+                      <p className="font-display text-kid-xs font-bold uppercase tracking-wide">
+                        Let&apos;s learn it
+                      </p>
+                      <p className="mt-1">
+                        📖 {displayProblem.explanation} The answer was{" "}
+                        <strong>{displayProblem.answer}</strong>.
+                      </p>
+                    </div>
                   ) : null}
                 </div>
               </Shake>
@@ -331,7 +463,7 @@ export function ProblemPlayer({
                   enterKeyHint="go"
                   autoFocus
                   placeholder="Type here…"
-                  className="touch-target mt-2 w-full rounded-2xl border-2 border-line bg-white px-5 py-4 text-3xl font-extrabold outline-none focus:border-primary"
+                  className="touch-target mt-focus mt-2 w-full rounded-2xl border-2 border-line bg-white px-5 py-4 text-kid-2xl font-extrabold focus:border-primary"
                 />
                 <div className="mt-2 flex gap-2" role="group" aria-label="Fraction keypad">
                   {ANSWER_KEYPAD_CHARS.map((ch) => (
@@ -347,9 +479,9 @@ export function ProblemPlayer({
                   ))}
                 </div>
                 {error ? (
-                  <p className="mt-2 text-kid-base font-bold text-coral" role="alert">
+                  <Alert tone="error" className="mt-2">
                     {error}
-                  </p>
+                  </Alert>
                 ) : null}
                 <ChunkyButton onClick={submit} size="lg" fullWidth shine className="mt-3">
                   Check it! ✅
@@ -365,7 +497,7 @@ export function ProblemPlayer({
                   Teach me 🙋
                 </ChunkyButton>
                 <ChunkyButton
-                  onClick={skipAfterReveal}
+                  onClick={() => advance(false, false)}
                   variant="secondary"
                   size="lg"
                   className="flex-1"
@@ -382,22 +514,6 @@ export function ProblemPlayer({
         </p>
       </div>
     </PageFade>
-  );
-}
-
-/** Chunky Duo-style progress bar (visual only — same value/max/label contract). */
-function ChunkyProgress({ value, max, label }: { value: number; max: number; label: string }) {
-  const pct = max > 0 ? Math.min(100, Math.round((value / max) * 100)) : 0;
-  return (
-    <div role="progressbar" aria-valuenow={value} aria-valuemin={0} aria-valuemax={max} aria-label={label}>
-      <p className="mb-1 font-display text-kid-sm font-semibold text-muted">{label}</p>
-      <div className="h-5 overflow-hidden rounded-pill border-2 border-line bg-card">
-        <div
-          className="h-full rounded-pill bg-primary transition-[width] duration-300"
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-    </div>
   );
 }
 
