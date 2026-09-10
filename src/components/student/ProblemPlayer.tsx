@@ -19,7 +19,8 @@ import type { AssignmentState, GeneratedProblem, PracticeResult, ProblemAttempt 
 import { ANSWER_INPUT_MODE, ANSWER_KEYPAD_CHARS, appendKeypadChar } from "@/lib/answerInput";
 import { generateProblem } from "@/lib/math/generators";
 import type { Problem } from "@/lib/math/types";
-import { DEFAULT_LEVEL, clampLevel, levelToDifficulty } from "@/lib/plan/levels";
+import { DEFAULT_LEVEL, clampLevel } from "@/lib/plan/levels";
+import type { SkillLevel } from "@/lib/plan/levels";
 import { buildLesson } from "@/lib/teach/lessons";
 import type { Lesson } from "@/lib/teach/lessons";
 import { SKILLS } from "@/lib/skills";
@@ -52,7 +53,8 @@ export function ProblemPlayer({
   const advance = useMemo(
     () => (solved: boolean, correctFirstTry: boolean) => {
       const now = Date.now();
-      recordGradedAttempt(
+      const levelBefore = displayProblem.level;
+      const outcome = recordGradedAttempt(
         {
           skillId: displayProblem.skillId,
           firstTryCorrect: correctFirstTry,
@@ -63,13 +65,21 @@ export function ProblemPlayer({
         undefined,
         questMode ? undefined : { countStreak: false },
       );
+      const levelAfter = outcome.level;
       const record: ProblemAttempt = {
         problemId: displayProblem.id,
         domain: displayProblem.domain,
+        skillId: displayProblem.skillId,
+        skillName: displayProblem.skillName,
+        level: levelBefore,
         attemptsUsed,
         solved,
         correctFirstTry,
         timeMs: now - startRef.current,
+        ...(levelAfter === levelBefore
+          ? {}
+          : { levelFrom: levelBefore, levelTo: levelAfter, promoted: levelAfter > levelBefore, demoted: levelAfter < levelBefore }),
+        ...(outcome.reteach ? { needsReteach: true } : {}),
       };
       const all = [...attemptsRef.current, record];
       attemptsRef.current = all;
@@ -89,6 +99,28 @@ export function ProblemPlayer({
           total: perCount[domain].total,
           solved: perCount[domain].solved,
         }));
+        // One row per skill that actually moved, keeping the first transition
+        // a skill saw so a double level-up doesn't render twice.
+        const levelChanges: PracticeResult["levelChanges"] = [];
+        const reteachSkills: PracticeResult["reteachSkills"] = [];
+        const movedSkills = new Set<string>();
+        const reteachSeen = new Set<string>();
+        for (const a of all) {
+          if (a.levelFrom !== undefined && a.levelTo !== undefined && !movedSkills.has(a.skillId)) {
+            movedSkills.add(a.skillId);
+            levelChanges.push({
+              skillId: a.skillId,
+              skillName: a.skillName,
+              from: a.levelFrom,
+              to: a.levelTo,
+              direction: a.levelTo > a.levelFrom ? "up" : "down",
+            });
+          }
+          if (a.needsReteach && !reteachSeen.has(a.skillId)) {
+            reteachSeen.add(a.skillId);
+            reteachSkills.push({ skillId: a.skillId, skillName: a.skillName });
+          }
+        }
         onComplete({
           assignmentId: assignment.id,
           finishedAt: Date.now(),
@@ -99,6 +131,8 @@ export function ProblemPlayer({
           perDomain,
           xpEarned: xpForResult(all),
           attempts: all,
+          levelChanges,
+          reteachSkills,
         });
         return;
       }
@@ -166,12 +200,8 @@ export function ProblemPlayer({
       // Follow-up check: fresh numbers, same skill, at the (lowered) plan level.
       const session = loadPlanSession();
       const level = clampLevel(session.levels[displayProblem.skillId] ?? DEFAULT_LEVEL);
-      const fresh = generateProblem(
-        displayProblem.skillId,
-        Math.floor(Math.random() * 2 ** 31),
-        levelToDifficulty(level)
-      );
-      setFollowUp(toGeneratedProblem(fresh));
+      const fresh = generateProblem(displayProblem.skillId, Math.floor(Math.random() * 2 ** 31), level);
+      setFollowUp(toGeneratedProblem(fresh, level));
       setInput("");
       setStage("answer");
       setAttemptsUsed(1);
@@ -398,7 +428,7 @@ function toMathProblem(p: GeneratedProblem): Problem {
 }
 
 /** Fresh generator output back into the session problem shape. */
-function toGeneratedProblem(p: Problem): GeneratedProblem {
+function toGeneratedProblem(p: Problem, level: SkillLevel): GeneratedProblem {
   const skill = SKILLS.find((s) => s.id === p.skill);
   return {
     id: `${p.id}-reteach`,
@@ -411,5 +441,7 @@ function toGeneratedProblem(p: Problem): GeneratedProblem {
     hint1: "Look for the trick you just learned. 🕵️",
     hint2: "Try it step by step, like the lesson showed. 👣",
     explanation: p.explanation ?? "",
+    level,
+    reason: "reteach",
   };
 }

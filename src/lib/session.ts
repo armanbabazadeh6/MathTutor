@@ -4,9 +4,9 @@ import { ALL_SKILLS as ALL_GENERATOR_SKILLS, generateProblem } from "./math/gene
 import type { AnswerType, MasteryMap } from "./math/types";
 import { inferAnswerType, isCorrectAnswer } from "./math/answers";
 import { buildPlan, MAX_PER_SKILL_PER_PLAN } from "./plan/plan";
-import type { Plan } from "./plan/plan";
+import type { Plan, PlanReason } from "./plan/plan";
 import { DEFAULT_LEVEL, DEFAULT_MASTERY, clampLevel, levelToDifficulty } from "./plan/levels";
-import type { LevelsMap } from "./plan/levels";
+import type { LevelsMap, SkillLevel } from "./plan/levels";
 import { applyRulesForSkill } from "./plan/rules";
 import type { LevelUpdate, SkillHistoryEntry } from "./plan/rules";
 import { recordActivity } from "./rewards/earning";
@@ -49,6 +49,17 @@ export interface GeneratedProblem {
   hint1: string;
   hint2: string;
   explanation: string;
+  /** Plan level this problem was generated at (drives real difficulty). */
+  level: SkillLevel;
+  /** Why the plan picked this skill. */
+  reason: PlanReason;
+  /**
+   * Set when the plan asked for a different skill than the one served
+   * (a generator-less skill, or a topic outside the picked domains).
+   * Lets the UI be honest instead of silently relabelling the problem.
+   */
+  intendedSkillId?: string;
+  intendedSkillName?: string;
 }
 
 export interface AssignmentState {
@@ -63,10 +74,24 @@ export interface AssignmentState {
 export interface ProblemAttempt {
   problemId: string;
   domain: SkillDomain;
+  /** Which skill this attempt actually exercised (was missing, so results could not name a skill). */
+  skillId: string;
+  skillName: string;
+  /** Plan level the problem was generated at. */
+  level: SkillLevel;
   attemptsUsed: number;
   solved: boolean;
   correctFirstTry: boolean;
   timeMs: number;
+  /** Level transition this attempt triggered, when it crossed a threshold. */
+  levelFrom?: SkillLevel;
+  levelTo?: SkillLevel;
+  /** True when `levelTo > levelFrom`. */
+  promoted?: boolean;
+  /** True when `levelTo < levelFrom`. */
+  demoted?: boolean;
+  /** True when the attempt flagged the skill for reteaching. */
+  needsReteach?: boolean;
 }
 
 export interface PracticeResult {
@@ -79,6 +104,16 @@ export interface PracticeResult {
   perDomain: { domain: SkillDomain; domainName: string; total: number; solved: number }[];
   xpEarned: number;
   attempts: ProblemAttempt[];
+  /** Deduped per-skill level transitions from this session, in first-seen order. */
+  levelChanges: {
+    skillId: string;
+    skillName: string;
+    from: SkillLevel;
+    to: SkillLevel;
+    direction: "up" | "down";
+  }[];
+  /** Skills this session flagged for reteaching. */
+  reteachSkills: { skillId: string; skillName: string }[];
 }
 
 export interface ProgressState {
@@ -281,36 +316,43 @@ export function generateAssignment(
     levelsMap: session.levels,
     masteryMap: session.mastery,
     history: session.history,
+    promotedAtStreakMap: session.promotedAtStreak,
+    demotedAtExhaustedMap: session.demotedAtExhausted,
     todayTopic: weakestActive.id,
     size: n,
   });
   const used: Record<string, number> = {};
   const queue = plan.items.filter((item) => supported.has(item.skillId));
-  // Top up from weakest supported skills when the plan queue has no generator.
+  // Top up from weakest supported skills when the plan queue is short.
   const topUpPool = [...supportedAll].sort(byMastery);
   for (const s of topUpPool) {
     if (queue.length >= n) break;
     if ((used[s.id] ?? 0) >= MAX_PER_SKILL_PER_PLAN) continue;
     const copies = queue.filter((q) => q.skillId === s.id).length;
     if (copies >= MAX_PER_SKILL_PER_PLAN) continue;
-    const level = clampLevel(session.levels[s.id] ?? DEFAULT_LEVEL);
-    queue.push({ skillId: s.id, level, difficulty: levelToDifficulty(level), reason: "weak" });
+    queue.push({
+      skillId: s.id,
+      level: clampLevel(session.levels[s.id] ?? DEFAULT_LEVEL),
+      difficulty: levelToDifficulty(clampLevel(session.levels[s.id] ?? DEFAULT_LEVEL)),
+      reason: "weak",
+    });
   }
   const problems: GeneratedProblem[] = queue.slice(0, n).map((item, i) => {
-    // Domains without a deterministic generator yet (e.g. geometry) fall
-    // back to supported skills so practice never comes back empty.
+    // The plan may pick a skill outside the topics the kid tapped. Substitute
+    // within the tapped domains, but record the intent so the UI can say so
+    // rather than silently relabelling the problem.
     const subPool = inActive.length ? inActive : supportedAll;
+    const intendedSkillId = item.skillId;
     let skillId = item.skillId;
-    let difficulty = item.difficulty;
     if (!active.includes(skillDomainOf(skillId))) {
       const sub =
         [...subPool].sort(byMastery).find((c) => (used[c.id] ?? 0) < MAX_PER_SKILL_PER_PLAN) ??
         weakestActive;
       skillId = sub.id;
-      difficulty = levelToDifficulty(clampLevel(session.levels[skillId] ?? DEFAULT_LEVEL));
     }
     used[skillId] = (used[skillId] ?? 0) + 1;
-    const p = generateProblem(skillId, Math.floor(Math.random() * 2 ** 31) + i * 7919, difficulty);
+    const level = clampLevel(session.levels[skillId] ?? item.level ?? DEFAULT_LEVEL);
+    const p = generateProblem(skillId, Math.floor(Math.random() * 2 ** 31) + i * 7919, level);
     return {
       id: `p-${Date.now()}-${i}-${rnd(1e6)}`,
       domain: skillDomainOf(skillId),
@@ -322,6 +364,11 @@ export function generateAssignment(
       hint1: p.hint1,
       hint2: p.hint2,
       explanation: p.explanation,
+      level,
+      reason: item.reason,
+      ...(skillId === intendedSkillId
+        ? {}
+        : { intendedSkillId, intendedSkillName: skillNameOf(intendedSkillId) }),
     };
   });
   const names = active
@@ -347,13 +394,49 @@ export function saveAssignment(a: AssignmentState, profileId?: string | null): v
   writeStored(ASSIGNMENT_KEY, JSON.stringify(a), profileId);
 }
 
+/**
+ * Repairs a stored assignment so every problem satisfies the current
+ * `GeneratedProblem` contract. Problems saved before the plan-level work carry
+ * no `level`, `reason`, or `answerType`, and reading them unchecked would put
+ * `undefined` where the type promises a value (and where the UI renders it).
+ */
+function normalizeStoredProblems(list: unknown): GeneratedProblem[] {
+  if (!Array.isArray(list)) return [];
+  const out: GeneratedProblem[] = [];
+  for (const raw of list) {
+    if (!raw || typeof raw !== "object") continue;
+    const p = raw as Partial<GeneratedProblem>;
+    if (typeof p.id !== "string" || typeof p.prompt !== "string" || typeof p.answer !== "string") continue;
+    const skillId = typeof p.skillId === "string" ? p.skillId : "";
+    out.push({
+      id: p.id,
+      domain: (p.domain ?? skillDomainOf(skillId)) as SkillDomain,
+      skillId,
+      skillName: typeof p.skillName === "string" && p.skillName ? p.skillName : skillNameOf(skillId),
+      prompt: p.prompt,
+      answer: p.answer,
+      answerType: p.answerType ?? inferAnswerType(p.answer),
+      hint1: typeof p.hint1 === "string" ? p.hint1 : "",
+      hint2: typeof p.hint2 === "string" ? p.hint2 : "",
+      explanation: typeof p.explanation === "string" ? p.explanation : "",
+      level: clampLevel(typeof p.level === "number" ? p.level : DEFAULT_LEVEL),
+      reason: p.reason ?? "today",
+      ...(typeof p.intendedSkillId === "string"
+        ? { intendedSkillId: p.intendedSkillId, intendedSkillName: p.intendedSkillName ?? skillNameOf(p.intendedSkillId) }
+        : {}),
+    });
+  }
+  return out;
+}
+
 export function loadAssignment(profileId?: string | null): AssignmentState | null {
   try {
     const raw = readStored(ASSIGNMENT_KEY, profileId);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as AssignmentState;
-    if (!parsed || !Array.isArray(parsed.problems) || !parsed.problems.length) return null;
-    return parsed;
+    const problems = normalizeStoredProblems(parsed?.problems);
+    if (!parsed || !problems.length) return null;
+    return { ...parsed, problems };
   } catch {
     return null;
   }
@@ -616,10 +699,35 @@ export interface PlanSessionState {
   streaks: Record<string, SkillStreaks>;
   /** Skill ids flagged for reteaching at the lowered level. */
   reteachQueue: string[];
+  /**
+   * Per-skill streak length consumed by the last promotion. Fed back into the
+   * rules so a run promotes once per crossing instead of on every event.
+   * Absent/legacy entries read as 0 (nothing consumed yet).
+   */
+  promotedAtStreak: Record<string, number>;
+  /** Per-skill exhausted-count consumed by the last demotion. Same idea. */
+  demotedAtExhausted: Record<string, number>;
 }
 
 export function emptyPlanSession(): PlanSessionState {
-  return { version: PLAN_SESSION_VERSION, levels: {}, mastery: {}, history: [], streaks: {}, reteachQueue: [] };
+  return {
+    version: PLAN_SESSION_VERSION,
+    levels: {},
+    mastery: {},
+    history: [],
+    streaks: {},
+    reteachQueue: [],
+    promotedAtStreak: {},
+    demotedAtExhausted: {},
+  };
+}
+
+/** Coerce a persisted map of string -> finite non-negative count. */
+function normalizeCountMap(raw: unknown): Record<string, number> {
+  if (!isStreakRecord(raw) || Array.isArray(raw)) return {};
+  const out: Record<string, number> = {};
+  for (const [k, v] of Object.entries(raw)) out[k] = toCount(v);
+  return out;
 }
 
 interface RawStreaks {
@@ -651,6 +759,7 @@ interface RawHistoryEntry {
   exhaustedAttempts?: unknown;
   correct?: unknown;
   usedHint?: unknown;
+  at?: unknown;
 }
 
 function toBool(v: unknown): boolean {
@@ -670,6 +779,9 @@ function normalizeHistory(raw: unknown): SkillHistoryEntry[] {
       exhaustedAttempts: toBool(entry.exhaustedAttempts),
       correct: entry.correct,
       usedHint: toBool(entry.usedHint),
+      // Legacy entries predate timestamps; leave undefined so the scheduler
+      // falls back to index order instead of inventing a date.
+      ...(typeof entry.at === "number" && Number.isFinite(entry.at) ? { at: entry.at } : {}),
     });
   }
   return out;
@@ -694,6 +806,8 @@ export function loadPlanSession(profileId?: string | null): PlanSessionState {
       reteachQueue: Array.isArray(parsed.reteachQueue)
         ? parsed.reteachQueue.filter((x): x is string => typeof x === "string")
         : [],
+      promotedAtStreak: normalizeCountMap(parsed.promotedAtStreak),
+      demotedAtExhausted: normalizeCountMap(parsed.demotedAtExhausted),
     };
   } catch {
     return emptyPlanSession();
@@ -710,26 +824,32 @@ export interface GradedOutcome extends LevelUpdate {
 }
 
 function applyToSession(s: PlanSessionState, entry: SkillHistoryEntry): LevelUpdate {
-  s.history.push(entry);
+  const stamped: SkillHistoryEntry = entry.at === undefined ? { ...entry, at: Date.now() } : entry;
+  s.history.push(stamped);
   if (s.history.length > MAX_HISTORY) s.history.splice(0, s.history.length - MAX_HISTORY);
-  const streak = s.streaks[entry.skillId] ?? { correct: 0, incorrect: 0 };
-  if (entry.correct) {
+  const skillId = stamped.skillId;
+  const streak = s.streaks[skillId] ?? { correct: 0, incorrect: 0 };
+  if (stamped.correct) {
     streak.correct += 1;
     streak.incorrect = 0;
   } else {
     streak.incorrect += 1;
     streak.correct = 0;
   }
-  s.streaks[entry.skillId] = streak;
+  s.streaks[skillId] = streak;
   const res = applyRulesForSkill({
-    level: s.levels[entry.skillId] ?? DEFAULT_LEVEL,
-    mastery: s.mastery[entry.skillId] ?? DEFAULT_MASTERY,
-    recent: s.history.filter((h) => h.skillId === entry.skillId),
+    level: s.levels[skillId] ?? DEFAULT_LEVEL,
+    mastery: s.mastery[skillId] ?? DEFAULT_MASTERY,
+    recent: s.history.filter((h) => h.skillId === skillId),
+    promotedAtStreak: s.promotedAtStreak[skillId],
+    demotedAtExhausted: s.demotedAtExhausted[skillId],
   });
-  s.levels[entry.skillId] = res.level;
-  s.mastery[entry.skillId] = res.mastery;
-  if (res.reteach && !s.reteachQueue.includes(entry.skillId)) s.reteachQueue.push(entry.skillId);
-  if (res.promoted) s.reteachQueue = s.reteachQueue.filter((q) => q !== entry.skillId);
+  s.levels[skillId] = res.level;
+  s.mastery[skillId] = res.mastery;
+  s.promotedAtStreak[skillId] = res.promotedAtStreak;
+  s.demotedAtExhausted[skillId] = res.demotedAtExhausted;
+  if (res.reteach && !s.reteachQueue.includes(skillId)) s.reteachQueue.push(skillId);
+  if (res.promoted) s.reteachQueue = s.reteachQueue.filter((q) => q !== skillId);
   return res;
 }
 
@@ -763,6 +883,15 @@ export function recordGradedAttempt(
   return { ...res, state: s, points };
 }
 
+/**
+ * Records the outcome of the Teach Me check.
+ *
+ * A correct reteach answer counts as a first-try win: the check is a single
+ * fresh question, and recording it as `firstTryCorrect: false` (the old
+ * behaviour) meant a student could complete ten lessons perfectly and never
+ * level up. An incorrect answer still keeps the run alive only when the
+ * skill was answered, so it is logged as a miss.
+ */
 export function recordReteachOutcome(
   skillId: string,
   correct: boolean,
@@ -772,12 +901,13 @@ export function recordReteachOutcome(
   const s = loadPlanSession(profileId);
   const res = applyToSession(s, {
     skillId,
-    firstTryCorrect: false,
+    firstTryCorrect: correct,
     exhaustedAttempts: false,
     correct,
-    usedHint: true,
+    usedHint: !correct,
   });
   if (correct) s.reteachQueue = s.reteachQueue.filter((q) => q !== skillId);
+  else if (!s.reteachQueue.includes(skillId)) s.reteachQueue.push(skillId);
   savePlanSession(s, profileId);
   const events = { levelUps: res.promoted ? 1 : 0 };
   const points =
@@ -794,6 +924,8 @@ export function currentPlan(size = 10, todayTopic?: string, profileId?: string |
     levelsMap: s.levels,
     masteryMap: s.mastery,
     history: s.history,
+    promotedAtStreakMap: s.promotedAtStreak,
+    demotedAtExhaustedMap: s.demotedAtExhausted,
     todayTopic,
     size,
   });
@@ -863,6 +995,8 @@ function questPlanSnapshot(profileId?: string | null): QuestPlanState {
     levelsMap: s.levels,
     masteryMap: s.mastery,
     history: s.history,
+    promotedAtStreakMap: s.promotedAtStreak,
+    demotedAtExhaustedMap: s.demotedAtExhausted,
     size: 12,
   });
   return { items: plan.items, levels: s.levels };
@@ -907,17 +1041,16 @@ export function questToAssignment(quest: Quest, profileId?: string | null): Assi
   const supportedAll = SKILLS.filter((s) => supported.has(s.id));
   const weakestSupported = [...supportedAll].sort(byMastery)[0] ?? SKILLS[0];
   const problems: GeneratedProblem[] = quest.items.map((item) => {
+    const intendedSkillId = item.skillId;
     let skillId = item.skillId;
-    let difficulty = item.difficulty;
     if (!supported.has(skillId)) {
       const domain = skillDomainOf(skillId);
       const inDomain = supportedAll.filter((s) => s.domain === domain).sort(byMastery);
-      const sub = inDomain[0] ?? weakestSupported;
-      skillId = sub.id;
-      difficulty = levelToDifficulty(clampLevel(session.levels[skillId] ?? DEFAULT_LEVEL));
+      skillId = (inDomain[0] ?? weakestSupported).id;
     }
+    const level = clampLevel(session.levels[skillId] ?? item.level ?? DEFAULT_LEVEL);
     const seed = ((quest.seed >>> 0) + item.position * 7919 + 7) >>> 0;
-    const p = generateProblem(skillId, seed, difficulty);
+    const p = generateProblem(skillId, seed, level);
     return {
       id: `pq-${quest.seed}-${item.position}`,
       domain: skillDomainOf(skillId),
@@ -929,6 +1062,11 @@ export function questToAssignment(quest: Quest, profileId?: string | null): Assi
       hint1: p.hint1,
       hint2: p.hint2,
       explanation: p.explanation,
+      level,
+      reason: item.reason,
+      ...(skillId === intendedSkillId
+        ? {}
+        : { intendedSkillId, intendedSkillName: skillNameOf(intendedSkillId) }),
     };
   });
   const domains = Array.from(new Set(problems.map((p) => p.domain)));

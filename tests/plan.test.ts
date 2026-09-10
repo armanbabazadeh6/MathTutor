@@ -101,12 +101,25 @@ test("short streak does not promote", () => {
 test("broken streak resets the count", () => {
   const recent: SkillHistoryEntry[] = [
     ...win("s", 2),
-    { skillId: "s", firstTryCorrect: false, exhaustedAttempts: false, correct: true, usedHint: true },
+    { skillId: "s", firstTryCorrect: false, exhaustedAttempts: false, correct: false, usedHint: true },
     ...win("s", 2),
   ];
   assert.equal(trailingFirstTryStreak(recent), 2);
   const r = applyRulesForSkill({ level: 2, mastery: 50, recent });
   assert.ok(!r.promoted);
+});
+
+test("a correct answer after a hint keeps the promotion run alive", () => {
+  // A reteach win is recorded as firstTryCorrect:false, usedHint:true. It is
+  // still a win, so it must not break the run the way a miss does.
+  const recent: SkillHistoryEntry[] = [
+    ...win("s", 2),
+    { skillId: "s", firstTryCorrect: false, exhaustedAttempts: false, correct: true, usedHint: true },
+  ];
+  assert.equal(trailingFirstTryStreak(recent), 3);
+  const r = applyRulesForSkill({ level: 2, mastery: 50, recent });
+  assert.equal(r.level, 3);
+  assert.ok(r.promoted);
 });
 
 test("repeated exhausted attempts demote and flag reteach", () => {

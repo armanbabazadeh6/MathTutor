@@ -52,6 +52,8 @@ function emptyResult(): PracticeResult {
     perDomain: [],
     xpEarned: 0,
     attempts: [],
+    levelChanges: [],
+    reteachSkills: [],
   };
 }
 
