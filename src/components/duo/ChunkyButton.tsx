@@ -37,10 +37,10 @@ const skins: Record<
     shadow: "#8a4400",
   },
   sky: {
-    bg: "var(--color-sky-dark)",
-    border: "var(--color-sky-ink)",
+    bg: "var(--color-sky-ink)",
+    border: "#084f72",
     text: "#ffffff",
-    shadow: "var(--color-sky-ink)",
+    shadow: "#084f72",
   },
   coral: {
     bg: "var(--color-coral-ink)",

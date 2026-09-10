@@ -16,6 +16,7 @@ const COVERED: Record<string, Kind[]> = {
   "bt-sub-multidigit": ["number-line"],
   "oa-mult-1digit": ["area-model"],
   "oa-mult-digit-1digit": ["bar-graph"],
+  "oa-div-facts": ["area-model"],
   "oa-div-1digit-divisor": ["bar-graph"],
   "oa-order-ops": ["number-chips"],
   "bt-place-value": ["place-value"],
@@ -42,6 +43,32 @@ const COVERED: Record<string, Kind[]> = {
   "geo-coord-plane": ["coordinate-grid"],
   "geo-composite-shapes": ["area-model"],
   "oa-multistep-word": ["area-model", "bar-graph"],
+  /* ---- sibling generator set ---- */
+  "oa-mult-2digit-2digit": ["bar-graph"],
+  "oa-factor-pairs": ["area-model"],
+  "oa-multiples-prime": ["number-chips"],
+  "oa-patterns": ["number-line"],
+  "oa-remainders": ["bar-graph"],
+  "oa-multistep-frac": ["fraction-bar"],
+  "oa-expressions": ["number-chips"],
+  "bt-add-sub-word": ["number-line"],
+  "bt-multiply-10s": ["number-chips"],
+  "bt-estimate": ["number-chips"],
+  "bt-compare-order": ["number-line"],
+  "bt-expanded-form": ["place-value"],
+  "fr-add-unlike-10-100": ["fraction-bar"],
+  "fr-mult-fraction-whole": ["fraction-bar"],
+  "fr-fraction-word": ["fraction-bar"],
+  "md-length-convert": ["bar-graph"],
+  "md-mass-capacity": ["bar-graph"],
+  "md-money": ["bar-graph"],
+  "md-line-plots": ["bar-graph"],
+  "md-angles": ["angle", "number-chips"],
+  "md-area-perimeter-word": ["area-model", "polygon"],
+  "geo-points-lines": ["number-line", "polygon"],
+  "geo-quadrilaterals": ["polygon"],
+  "geo-coordinate-intro": ["coordinate-grid"],
+  "geo-quad-hierarchy": ["polygon"],
 };
 
 const SEEDS = [1, 2, 3, 4, 5];
@@ -82,9 +109,11 @@ test("every covered skill yields a finite model of the expected kind for every s
   }
 });
 
-test("covered skills are all real generators", () => {
+test("every registered skill has a picture, and every covered id is real", () => {
   const unknown = Object.keys(COVERED).filter((id) => !ALL_SKILLS.includes(id));
   assert.deepEqual(unknown, [], `covered skills missing from the generator registry: ${unknown.join(", ")}`);
+  const uncovered = ALL_SKILLS.filter((id) => !(id in COVERED));
+  assert.deepEqual(uncovered, [], `registered skills with no visual model: ${uncovered.join(", ")}`);
 });
 
 test("parsing survives every level, including the largest operands", () => {
@@ -202,7 +231,9 @@ test("clock and angle use the measured values", () => {
 /* ---------- refusals ---------- */
 
 test("unknown skills and junk prompts return null instead of guessing", () => {
-  assert.equal(buildVisual("oa-div-facts", { text: "What is 12 ÷ 3?", answer: "4" }), null);
+  // Every registered skill now has a model, so refusal only applies to ids the
+  // registry does not know and to prompts that do not match their skill.
+  assert.equal(buildVisual("oa-mult-3digit-1digit", { text: "What is 123 × 4?", answer: "492" }), null);
   assert.equal(buildVisual("totally-made-up-skill", { text: "What is 1 + 1?", answer: "2" }), null);
   for (const skillId of Object.keys(COVERED)) {
     for (const junk of ["", "   ", "The quick brown fox!", "What is ?", "Round to the nearest.", "1/2 + ?", "\u00d7 5"]) {

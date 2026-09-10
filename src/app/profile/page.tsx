@@ -258,8 +258,8 @@ export default function ProfilePage() {
           <DuoCard title="Photo 📸" subtitle={`Square photos work best — we shrink them to ${PHOTO_MAX_DIM}px.`}>
             <div className="flex flex-wrap items-center gap-3">
               <label
-                className="duo-press touch-target inline-flex min-h-[56px] cursor-pointer items-center justify-center gap-2 rounded-2xl bg-sky px-6 font-display text-kid-sm font-semibold uppercase tracking-wide text-white"
-                style={{ border: "2px solid var(--color-sky-dark)", boxShadow: "0 4px 0 var(--color-sky-dark)" }}
+                className="duo-press mt-focus touch-target inline-flex min-h-[56px] cursor-pointer items-center justify-center gap-2 rounded-2xl bg-skyink px-6 font-display text-kid-sm font-bold uppercase tracking-wide text-white"
+                style={{ border: "2px solid #084f72", boxShadow: "0 4px 0 #084f72" }}
               >
                 {active.avatarDataUrl ? "📷 Change photo" : "📷 Add photo"}
                 <input

@@ -40,7 +40,8 @@ export default function GlobalError({
           <button
             type="button"
             onClick={reset}
-            className="touch-target rounded-card border-2 border-line bg-primary px-6 py-3 text-kid-base font-bold text-white shadow-chunky"
+            className="duo-press mt-focus touch-target rounded-2xl border-2 border-primaryink bg-primarybtn px-8 py-4 font-display text-kid-xl font-bold uppercase tracking-wide text-white"
+            style={{ boxShadow: "0 4px 0 var(--color-primary-ink)" }}
           >
             Try again
           </button>

@@ -134,7 +134,9 @@ function Caption({ lines, y }: { lines: string[]; y: number }): JSX.Element {
  * ------------------------------------------------------------------ */
 
 function fractionRows(fraction: VisualFraction): number {
-  return Math.min(Math.max(Math.ceil(fraction.numerator / fraction.denominator), 1), 8);
+  // The largest numerator any covered skill produces is a product of a proper
+  // fraction and a whole number, so this stays exact (never truncating a bar).
+  return Math.min(Math.max(Math.ceil(fraction.numerator / fraction.denominator), 1), 12);
 }
 
 function fractionBar(model: Extract<VisualModel, { kind: "fraction-bar" }>): {

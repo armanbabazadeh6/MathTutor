@@ -154,6 +154,28 @@ const SYMMETRY_SIDES: Record<string, number> = {
 };
 
 /**
+ * Quadrilateral classifications the generator asks for, keyed by the answer it
+ * expects. `equalSides` drives the drawing; the label carries the definition the
+ * frozen `polygon` kind cannot express visually.
+ */
+const QUADRILATERALS: Record<string, { equalSides: boolean; label: string }> = {
+  square: { equalSides: true, label: "a square: 4 right angles and 4 equal sides" },
+  rectangle: { equalSides: false, label: "a rectangle: 4 right angles with opposite sides equal" },
+  rhombus: { equalSides: true, label: "a rhombus: 4 equal sides with parallel opposite sides" },
+  parallelogram: { equalSides: false, label: "a parallelogram: both pairs of opposite sides parallel and equal" },
+  trapezoid: { equalSides: false, label: "a trapezoid: exactly one pair of parallel sides" },
+};
+
+/** Side facts behind the quadrilateral hierarchy questions. */
+const QUADRILATERAL_PROPERTIES: Record<string, { equalSides: boolean; sides: string }> = {
+  square: { equalSides: true, sides: "4 right angles and 4 equal sides" },
+  rectangle: { equalSides: false, sides: "4 right angles and opposite sides equal" },
+  rhombus: { equalSides: true, sides: "4 equal sides and parallel opposite sides" },
+  parallelogram: { equalSides: false, sides: "two pairs of parallel sides" },
+  trapezoid: { equalSides: false, sides: "exactly one pair of parallel sides" },
+};
+
+/**
  * Best-effort model for a generated problem, or null when a picture adds
  * nothing. Deterministic: the same skill id + prompt text always yields the
  * same model (or the same null).
@@ -520,6 +542,431 @@ export function buildVisual(
       return valid(wordProblemVisual(text));
     }
 
+    /* ---------- extra operations (sibling generator set) ---------- */
+    case "oa-div-facts": {
+      const m = /What is ([\d,]+) ÷ (\d+)\?/.exec(text);
+      if (!m) return null;
+      const n = num(m[1]);
+      const divisor = num(m[2]);
+      const quotient = num(answer);
+      if (!Number.isInteger(quotient) || quotient <= 0) return null;
+      return valid({
+        kind: "area-model",
+        rows: divisor,
+        cols: quotient,
+        label: `${n} ÷ ${divisor}`,
+      });
+    }
+
+    case "oa-mult-2digit-2digit": {
+      const m = /What is ([\d,]+) × (\d+)\?/.exec(text);
+      if (!m) return null;
+      const a = num(m[1]);
+      const b = num(m[2]);
+      const tens = Math.floor(b / 10) * 10;
+      const ones = b % 10;
+      if (ones === 0) return valid({ kind: "bar-graph", values: [a * b], label: `${fmtNum(a)} × ${b}` });
+      return valid({
+        kind: "bar-graph",
+        values: [a * tens, a * ones],
+        label: `${fmtNum(a)} × ${b} split into ${fmtNum(tens)} + ${ones}`,
+      });
+    }
+
+    case "oa-factor-pairs": {
+      const m = /The number ([\d,]+) can be written as (\d+) × \?/.exec(text);
+      if (!m) return null;
+      const n = num(m[1]);
+      const known = num(m[2]);
+      const missing = num(answer);
+      if (!Number.isInteger(missing) || missing <= 0) return null;
+      return valid({
+        kind: "area-model",
+        rows: known,
+        cols: missing,
+        label: `${n} = ${known} × ${missing}`,
+      });
+    }
+
+    case "oa-multiples-prime": {
+      const m = /Is ([\d,]+) prime or composite\?/.exec(text);
+      if (!m) return null;
+      const n = num(m[1]);
+      if (!Number.isInteger(n) || n < 2) return null;
+      const proper: number[] = [];
+      for (let factor = 2; factor * factor <= n; factor++) {
+        if (n % factor !== 0) continue;
+        proper.push(factor);
+        if (factor !== n / factor) proper.push(n / factor);
+      }
+      proper.sort((a, b) => a - b);
+      // A prime shows exactly two factors; a composite shows more, capped so the
+      // chip row stays readable.
+      return valid({ kind: "number-chips", values: [1, ...proper.slice(0, 4), n] });
+    }
+
+    case "oa-patterns": {
+      const m = /next number in this pattern\? ([\d, ]+), \?/.exec(text);
+      if (!m) return null;
+      const terms = m[1].split(",").map((part) => Number(part.trim()));
+      const next = num(answer);
+      if (terms.length < 2 || terms.some((term) => !Number.isFinite(term)) || !Number.isFinite(next)) {
+        return null;
+      }
+      return valid({
+        kind: "number-line",
+        min: Math.min(...terms),
+        max: Math.max(next, ...terms),
+        marks: terms,
+      });
+    }
+
+    case "oa-remainders": {
+      const packed = /^([\d,]+) .+ are packed into .+ holds no more than (\d+) /.exec(text);
+      const shared = /^([\d,]+) .+ are shared equally among (\d+) friends\./.exec(text);
+      const match = packed ?? shared;
+      if (!match) return null;
+      const total = num(match[1]);
+      const group = num(match[2]);
+      if (group <= 0) return null;
+      const quotient = Math.floor(total / group);
+      const remainder = total % group;
+      return valid({
+        kind: "bar-graph",
+        values: [quotient, remainder],
+        label: `${fmtNum(total)} put into groups of ${group}: ${quotient} full groups, ${remainder} left over`,
+      });
+    }
+
+    case "oa-multistep-frac": {
+      const m = /A recipe uses (\d+)\/(\d+) cup of sugar for each batch\. .+ makes (\d+) batches, starting with ([\d,]+) cups? of sugar\./.exec(text);
+      if (!m) return null;
+      const [a, d, batches] = [num(m[1]), num(m[2]), num(m[3])];
+      if (d <= 0) return null;
+      return valid({
+        kind: "fraction-bar",
+        numerator: a * batches,
+        denominator: d,
+        compare: { numerator: a, denominator: d },
+      });
+    }
+
+    case "oa-expressions": {
+      const quoted = /Write the expression for "(.+?)" and evaluate it/.exec(text);
+      if (!quoted) return null;
+      const operands = (quoted[1].match(/\d+/g) ?? []).map(Number);
+      const value = num(answer);
+      if (operands.length === 0 || !Number.isFinite(value)) return null;
+      return valid({ kind: "number-chips", values: [...operands, value] });
+    }
+
+    case "bt-add-sub-word": {
+      const added = /collected ([\d,]+) .+ and ([\d,]+) this year/.exec(text);
+      if (added) {
+        const a = num(added[1]);
+        const b = num(added[2]);
+        return valid({
+          kind: "number-line",
+          min: 0,
+          max: a + b,
+          marks: [a, a + b],
+          label: `${fmtNum(a)} + ${fmtNum(b)}`,
+        });
+      }
+      const taken = /has ([\d,]+) .+ and gives away ([\d,]+)\./.exec(text);
+      if (!taken) return null;
+      const a = num(taken[1]);
+      const b = num(taken[2]);
+      return valid({
+        kind: "number-line",
+        min: 0,
+        max: a,
+        marks: [a - b, a],
+        label: `${fmtNum(a)} − ${fmtNum(b)}`,
+      });
+    }
+
+    case "bt-multiply-10s": {
+      const m = /What is ([\d,]+) × (\d+)\?/.exec(text);
+      if (!m) return null;
+      const value = num(answer);
+      if (!Number.isFinite(value)) return null;
+      return valid({ kind: "number-chips", values: [num(m[1]), num(m[2]), value] });
+    }
+
+    case "bt-estimate": {
+      const both = /Estimate ([\d,]+) ([+×]) ([\d,]+) by rounding each number to the nearest (ten|hundred|thousand)\./.exec(text);
+      const mixed = /Estimate ([\d,]+) × ([\d,]+) by rounding ([\d,]+) to the nearest (ten|hundred|thousand) and ([\d,]+) to the nearest (ten|hundred|thousand)\./.exec(text);
+      const estimate = num(answer);
+      if (!Number.isFinite(estimate)) return null;
+      if (both) {
+        const place = ROUND_FACTOR[both[4]];
+        const a = num(both[1]);
+        const b = num(both[3]);
+        return valid({
+          kind: "number-chips",
+          values: [a, Math.round(a / place) * place, b, Math.round(b / place) * place, estimate],
+        });
+      }
+      if (!mixed) return null;
+      const a = num(mixed[1]);
+      const b = num(mixed[2]);
+      const placeA = ROUND_FACTOR[mixed[4]];
+      const placeB = ROUND_FACTOR[mixed[6]];
+      return valid({
+        kind: "number-chips",
+        values: [a, Math.round(a / placeA) * placeA, b, Math.round(b / placeB) * placeB, estimate],
+      });
+    }
+
+    case "bt-compare-order": {
+      const m = /Compare: ([\d,]+) \? ([\d,]+)\./.exec(text);
+      if (!m) return null;
+      const a = num(m[1]);
+      const b = num(m[2]);
+      const marks = Array.from(new Set([a, b])).sort((x, y) => x - y);
+      return valid({
+        kind: "number-line",
+        min: 0,
+        max: Math.max(a, b),
+        marks,
+        label: `compare ${fmtNum(a)} with ${fmtNum(b)}`,
+      });
+    }
+
+    case "bt-expanded-form": {
+      const write = /Write ([\d,]+) in expanded form/.exec(text);
+      const rebuild = /What number is ([\d,]+(?: \+ [\d,]+)+)\?/.exec(text);
+      const digits = (write ? write[1] : rebuild ? String(num(answer)) : "").replace(/,/g, "");
+      if (digits.length === 0 || !/^\d+$/.test(digits)) return null;
+      return valid({ kind: "place-value", digits, highlight: 0 });
+    }
+
+    case "fr-add-unlike-10-100": {
+      const m = ADD_UNLIKE.exec(text);
+      if (!m) return null;
+      const [a, d1, b, d2] = [num(m[1]), num(m[2]), num(m[3]), num(m[4])];
+      if (d1 <= 0 || d2 % d1 !== 0) return null;
+      return valid({
+        kind: "fraction-bar",
+        numerator: a * (d2 / d1) + b,
+        denominator: d2,
+        compare: { numerator: a, denominator: d1 },
+      });
+    }
+
+    case "fr-mult-fraction-whole": {
+      const m = MULT_WHOLE.exec(text);
+      if (!m) return null;
+      const [a, d, whole] = [num(m[1]), num(m[2]), num(m[3])];
+      return valid({
+        kind: "fraction-bar",
+        numerator: a * whole,
+        denominator: d,
+        compare: { numerator: a, denominator: d },
+      });
+    }
+
+    case "fr-fraction-word": {
+      const pairs = Array.from(text.matchAll(/(\d+)\/(\d+)/g));
+      if (pairs.length < 2) return null;
+      const [a, d, b, d2] = [num(pairs[0][1]), num(pairs[0][2]), num(pairs[1][1]), num(pairs[1][2])];
+      if (d !== d2) return null;
+      const numerator = /cut off|eaten/.test(text) ? a - b : a + b;
+      if (numerator <= 0) return null;
+      return valid({ kind: "fraction-bar", numerator, denominator: d, compare: { numerator: a, denominator: d } });
+    }
+
+    case "md-length-convert": {
+      const m = /How many ([\w\s]+?) are in ([\d,]+) (\w+)\?/.exec(text);
+      if (!m) return null;
+      const converted = num(answer);
+      if (!Number.isFinite(converted)) return null;
+      const to = m[1].trim();
+      return valid({
+        kind: "bar-graph",
+        values: [converted],
+        label: `${fmtNum(num(m[2]))} ${m[3]} in ${to}`,
+        unit: to,
+      });
+    }
+
+    case "md-mass-capacity": {
+      const combined = /^([\d,]+) (\w+) and ([\d,]+) (\w+) is how many ([\w\s]+?) in all\?/.exec(text);
+      if (combined) {
+        const converted = num(answer);
+        if (!Number.isFinite(converted)) return null;
+        const to = combined[5].trim();
+        return valid({
+          kind: "bar-graph",
+          values: [converted],
+          label: `${fmtNum(num(combined[1]))} ${combined[2]} plus ${fmtNum(num(combined[3]))} ${combined[4]}, in ${to}`,
+          unit: to,
+        });
+      }
+      const m = /How many ([\w\s]+?) are in ([\d,]+) (\w+)\?/.exec(text);
+      if (!m) return null;
+      const converted = num(answer);
+      if (!Number.isFinite(converted)) return null;
+      const to = m[1].trim();
+      return valid({
+        kind: "bar-graph",
+        values: [converted],
+        label: `${fmtNum(num(m[2]))} ${m[3]} in ${to}`,
+        unit: to,
+      });
+    }
+
+    case "md-money": {
+      const m = /buys (\d+) .+ for \$([\d.]+) each/.exec(text);
+      if (!m) return null;
+      const quantity = num(m[1]);
+      const price = num(m[2]);
+      const spent = price * quantity;
+      const paid = /pays with \$([\d.]+)\./.exec(text);
+      const answerValue = num(answer);
+      if (!Number.isFinite(answerValue)) return null;
+      if (paid) {
+        const bill = num(paid[1]);
+        return valid({
+          kind: "bar-graph",
+          values: [spent, answerValue],
+          label: `${quantity} at $${price.toFixed(2)} from $${bill.toFixed(2)}`,
+          unit: "dollars",
+        });
+      }
+      return valid({
+        kind: "bar-graph",
+        values: [price, answerValue],
+        label: `${quantity} items at $${price.toFixed(2)} each`,
+        unit: "dollars",
+      });
+    }
+
+    case "md-line-plots": {
+      const m = /A line plot of (.+?) shows: (.+?)\. /.exec(text);
+      if (!m) return null;
+      const counts = Array.from(m[2].matchAll(/(\d+) at /g)).map((pair) => num(pair[1]));
+      if (counts.length === 0) return null;
+      return valid({
+        kind: "bar-graph",
+        values: counts,
+        label: `${m[1]}: ${m[2]}`,
+      });
+    }
+
+    case "md-angles": {
+      const split = /A (\d+)° angle is split into two parts\. One part measures (\d+)°\./.exec(text);
+      const composed = /An angle is split into (\d+) parts measuring ([\d° +]+)\./.exec(text);
+      const numericAnswer = num(answer);
+      if (split) {
+        const whole = num(split[1]);
+        const part = num(split[2]);
+        if (whole <= 180) return valid({ kind: "angle", degrees: whole });
+        return valid({ kind: "number-chips", values: [whole, part, numericAnswer] });
+      }
+      if (!composed) return null;
+      const parts = (composed[2].match(/\d+/g) ?? []).map(Number);
+      if (parts.length === 0) return null;
+      if (numericAnswer <= 180) return valid({ kind: "angle", degrees: numericAnswer });
+      return valid({ kind: "number-chips", values: [...parts, numericAnswer] });
+    }
+
+    case "md-area-perimeter-word": {
+      const m = /A rectangular \w+ is ([\d,]+) meters long and ([\d,]+) meters wide\./.exec(text);
+      if (!m) return null;
+      const length = num(m[1]);
+      const width = num(m[2]);
+      if (/What is its area/.test(text)) {
+        return valid({
+          kind: "area-model",
+          rows: length,
+          cols: width,
+          label: `${length} m × ${width} m`,
+        });
+      }
+      return valid({
+        kind: "polygon",
+        sides: 4,
+        equalSides: length === width,
+        label: `${length} m long, ${width} m wide`,
+      });
+    }
+
+    case "geo-points-lines": {
+      if (/named location with no length, width, or size/.test(text)) {
+        return valid({ kind: "number-line", min: 0, max: 10, marks: [5], label: "a point marks one exact location" });
+      }
+      if (/goes on forever in both directions/.test(text)) {
+        return valid({ kind: "number-line", min: 0, max: 10, marks: [], label: "a line goes on forever in both directions" });
+      }
+      if (/two endpoints that you can measure/.test(text)) {
+        return valid({ kind: "number-line", min: 0, max: 10, marks: [2, 8], label: "a line segment has two endpoints" });
+      }
+      if (/starts at one endpoint and goes on forever in one direction/.test(text)) {
+        return valid({ kind: "number-line", min: 0, max: 10, marks: [2], label: "a ray starts at one endpoint and goes one way" });
+      }
+      if (/never meet and stay the same distance apart/.test(text)) {
+        return valid({
+          kind: "polygon",
+          sides: 4,
+          equalSides: false,
+          label: "parallel lines never meet — the opposite sides of this rectangle are parallel",
+        });
+      }
+      if (/meet and form four right angles/.test(text)) {
+        return valid({
+          kind: "polygon",
+          sides: 4,
+          equalSides: true,
+          label: "perpendicular lines meet at a right angle",
+        });
+      }
+      return null;
+    }
+
+    case "geo-quadrilaterals": {
+      const shape = QUADRILATERALS[answer.trim().toLowerCase()];
+      if (!shape) return null;
+      return valid({ kind: "polygon", sides: 4, equalSides: shape.equalSides, label: shape.label });
+    }
+
+    case "geo-coordinate-intro": {
+      const move = /Point A is at \((\d+), (\d+)\) on the grid\. You move (\d+) units right and (\d+) units up/.exec(text);
+      if (move) {
+        const start = { x: num(move[1]), y: num(move[2]) };
+        const end = { x: start.x + num(move[3]), y: start.y + num(move[4]) };
+        return valid({
+          kind: "coordinate-grid",
+          points: [start, end],
+          max: Math.max(start.x, start.y, end.x, end.y, 5) + 1,
+        });
+      }
+      const origin = /Point A is (\d+) units to the right and (\d+) units up/.exec(text);
+      if (!origin) return null;
+      const x = num(origin[1]);
+      const y = num(origin[2]);
+      return valid({
+        kind: "coordinate-grid",
+        points: [{ x, y }],
+        max: Math.max(x, y, 5) + 1,
+      });
+    }
+
+    case "geo-quad-hierarchy": {
+      const m = /Is every (\w+) a (\w+)\?/.exec(text);
+      if (!m) return null;
+      const subject = m[1].toLowerCase();
+      const properties = QUADRILATERAL_PROPERTIES[subject];
+      if (!properties) return null;
+      return valid({
+        kind: "polygon",
+        sides: 4,
+        equalSides: properties.equalSides,
+        label: `every ${subject} has ${properties.sides} — is every ${subject} a ${m[2]}?`,
+      });
+    }
+
     default:
       return null;
   }
@@ -582,11 +1029,16 @@ export function describeVisual(model: VisualModel): string {
     case "number-line": {
       const marks = model.marks.map(fmtNum).join(" and ");
       const caption = model.label ? ` (${model.label})` : "";
-      const noun = model.marks.length === 1 ? "a mark at" : "marks at";
-      return `A number line from ${fmtNum(model.min)} to ${fmtNum(model.max)} with ${noun} ${marks}${caption}.`;
+      const noun =
+        model.marks.length === 0
+          ? "no marked points"
+          : model.marks.length === 1
+            ? `a mark at ${marks}`
+            : `marks at ${marks}`;
+      return `A number line from ${fmtNum(model.min)} to ${fmtNum(model.max)} with ${noun}${caption}.`;
     }
     case "area-model": {
-      const caption = model.label ? `: ${model.label}` : "";
+      const caption = model.label ? ` — ${model.label}` : "";
       return `A grid of ${model.rows} rows and ${model.cols} columns${caption}, showing ${model.rows * model.cols} small squares in all.`;
     }
     case "place-value": {
@@ -615,8 +1067,12 @@ export function describeVisual(model: VisualModel): string {
       return `An analog clock showing ${model.hour}:${String(model.minute).padStart(2, "0")}.`;
     }
     case "polygon": {
-      const shape = model.equalSides === false ? `${model.sides}-sided shape with sides of different lengths` : `regular ${model.sides}-sided shape`;
-      return model.label ? `A ${shape}: ${model.label}.` : `A ${shape}.`;
+      const shape =
+        model.equalSides === false
+          ? `${model.sides}-sided shape with sides of different lengths`
+          : `regular ${model.sides}-sided shape`;
+      const sentence = model.label ? `A ${shape} — ${model.label}` : `A ${shape}`;
+      return /[.?!]$/.test(sentence) ? sentence : `${sentence}.`;
     }
     case "symmetry": {
       const lines = model.axes === 1 ? "line" : "lines";

@@ -267,14 +267,15 @@ p {
   background: var(--color-line-soft);
 }
 
-/* Small uppercase label — the "eyebrow" above a section title. */
+/* Small uppercase label — the "eyebrow" above a section title.
+   Deliberately colourless: the muted grey only clears AA on a white card, so
+   the surface that hosts it decides the colour (see DuoCard's tone handling). */
 .mt-eyebrow {
   font-family: var(--font-display);
   font-size: 0.8125rem;
   font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--color-muted);
 }
 
 /* ---- Touch motion utilities (iPad tap feel) ---- */
