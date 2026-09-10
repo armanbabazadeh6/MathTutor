@@ -216,6 +216,9 @@ export default function ProfilePage() {
         <div className="mt-stagger flex flex-col gap-5">
           <header className="grid grid-cols-[auto_1fr] items-center gap-4">
             {active.avatarDataUrl ? (
+              // Stored as a data URL in localStorage, so `next/image` cannot
+              // optimise or proxy it — a plain <img> is the correct element.
+              // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={active.avatarDataUrl}
                 alt={active.name}

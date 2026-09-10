@@ -28,9 +28,19 @@ import {
 } from "@/lib/profile/store";
 import type { ProfilesDoc } from "@/lib/profile/store";
 
+/** Grown-up gate challenge: a fresh two-digit addition per attempt. */
+function makeGateChallenge(): { a: number; b: number; sum: number; text: string } {
+  const a = 5 + Math.floor(Math.random() * 10);
+  const b = 3 + Math.floor(Math.random() * 10);
+  return { a, b, sum: a + b, text: `${a} + ${b} = ?` };
+}
+
 function AvatarFace({ name, animal, color, photo }: { name: string; animal: string; color: string; photo?: string }) {
   if (photo) {
     return (
+      // Stored as a data URL in localStorage, so `next/image` cannot optimise
+      // or proxy it — a plain <img> is the correct element here.
+      // eslint-disable-next-line @next/next/no-img-element
       <img
         src={photo}
         alt={name}
@@ -110,10 +120,11 @@ export default function ProfilesPage() {
   const [gateFor, setGateFor] = useState<string | null>(null);
   const [gateAnswer, setGateAnswer] = useState("");
   const [gateError, setGateError] = useState("");
-  const gate = useMemo(() => {
-    const a = 5 + Math.floor(Math.random() * 10);
-    const b = 3 + Math.floor(Math.random() * 10);
-    return { a, b, sum: a + b, text: `${a} + ${b} = ?` };
+  const [gate, setGate] = useState(makeGateChallenge);
+  // Picking a different player rolls a fresh challenge, so a previous answer
+  // can never be carried over.
+  useEffect(() => {
+    if (gateFor) setGate(makeGateChallenge());
   }, [gateFor]);
 
   useEffect(() => {

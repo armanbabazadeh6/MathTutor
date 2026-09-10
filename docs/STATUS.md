@@ -195,3 +195,98 @@ Gamification rules, server-only AI provider, and CSS-only polish effects landed 
 - `/favicon.ico` direct requests 404 (no binary `.ico` was generated; a real 32×32 favicon was out of this slice's owned paths).
 - `supabase/seed.sql` still seeds only the 45 grade-4 skills.
 - `exportBackup()` still covers 6 of the 10 per-kid suffixes.
+
+## Production polish pass (2026-09-10)
+
+### State
+
+Sixteen agents across four waves took the app from "engine works" to "feels shipped":
+design system, real difficulty, real visuals, teach mode for every skill, every student
+screen rebuilt, infra hardened. `npm test` 304 -> 381, all green.
+
+### Foundation (integrator-owned)
+
+- **Root-cause CSS bug fixed**: every Tailwind opacity modifier on a theme colour emitted
+  **zero CSS** (`bg-ink/45` scrims, `bg-card/95` nav, `bg-sunny/40` hints). Colours now
+  resolve through `rgb(var(--rgb-*) / <alpha-value>)`; verified in the built stylesheet.
+- Palette rebuilt around `*-ink` text shades and `*-soft` tint fills, with measured contrast:
+  primary CTA 2.09:1 -> 4.69:1, muted body 4.02:1 -> 5.04:1, gem counter 2.45:1 -> 5.62:1,
+  progress fill vs track 1.59:1 -> 3.25:1, nav active label 2.09:1 -> 5.02:1.
+- Pinch-zoom restored (`maximumScale` removed — WCAG 1.4.4), crash screen + install prompt +
+  admin surfaces moved on-theme, one `:focus-visible` ring everywhere.
+- New shared primitives: accessible `Sheet` (escape, focus trap, scroll lock), `Alert`,
+  `EmptyState`, `ProgressBar`, `LevelUpOverlay`, plus `mt-route` page transitions.
+- `CountUp` no longer shows a stale `0` in a background tab (snaps to the true value when
+  reduced-motion is set or the page is hidden).
+
+### Engine: difficulty is now real
+
+- `generateProblem(skillId, seed, level)` — the third argument is a **level**, and every
+  generator scales its operands, digit counts, denominators and step counts on it.
+  Measured mean operand magnitude, level 1 -> 5: `oa-mult-1digit` 3.52 -> 6.28,
+  `md-volume` 2.92 -> 14.45, `bt-add-multidigit` 28.96 -> 547,313.93.
+- Generator coverage 31/56 -> **56/56** skills (`generators-extra.ts` adds 25).
+- Promotion fires once per threshold crossing (was: every further win ratcheted the level —
+  3 wins took a skill from L2 to L5). Demotion is likewise crossing-based, and the
+  consumed counters persist per skill.
+- `SkillHistoryEntry` carries `at` (epoch ms); `plan/srs.ts` schedules reviews on a
+  1/3/7/16/35-day ladder scaled by mastery and level, replacing array-index ordering.
+- **Grade-5 is reachable**: graduation coverage is computed over generator-backed skills, so
+  the `>= 0.8` bar can actually be met (previously unreachable in all five domains).
+- Reteach wins count toward promotion (they could never promote before).
+- Legacy stored assignments are normalised on load; quest fallback can no longer inject
+  locked grade-5 content.
+
+### Teaching: pictures that don't give the answer away
+
+- `visual/models.ts` + `VisualModelView` render 12 real model kinds (fraction bar, number
+  line, area model, place-value chart, coordinate grid, angle, unit cubes, clock, polygon,
+  symmetry, bar graph, number chips) for **all 56 skills**; 11,200 sampled problems produce
+  0 nulls / throws / NaN.
+- Practice visuals are `reveal: false` — they show the *setup*, never the result. Verified on
+  the production build: "What is 8 × 9?" renders "8 rows × 9 columns" with no `72` anywhere.
+  Teach mode passes `reveal: true` so worked examples keep their results.
+- Lessons cover all 56 skills (was 31); 20 answer-leaking teaching steps rewritten; the
+  teach check mints a **fresh** problem (was: the identical failed problem, often with the
+  answer already printed above it) — 0/1680 same-text collisions across 56 skills × 30 seeds.
+
+### Screens
+
+- **Today** 2689px -> ~1850px, one above-the-fold CTA, real path states, shared Sheet/Alert/
+  Skeleton/EmptyState.
+- **Progress** 8106px -> 2265px collapsed / 3594px with the focus domain open; per-skill
+  mastery + level pips, streak calendar, SRS due list; it now reads the plan engine instead
+  of a second, inconsistent accuracy model.
+- **Results** names skills, lists level changes and gives a per-problem breakdown.
+- **Practice** surfaces level-ups (previously silent), XP feedback, honest skill-substitution
+  notices, and the problem's visual.
+- **Profiles** first-run hero, accessible sheets, per-card options.
+
+### Infra
+
+- `next` 14.2.5 -> **14.2.35** (fixes the RSC DoS advisory); ESLint + Prettier added and
+  wired into CI; security headers + CSP; `robots`/`sitemap`/`error`/`not-found` routes;
+  `.env*` ignore fixed; `server-only` guards; admin PIN no longer printed; test glob
+  discovers every suite; `engines.node >= 22`.
+
+### Verify
+
+- `npx tsc --noEmit` clean; `npm run lint` clean (0 warnings); `npm test` **381/381**;
+  `npm run build` passes, 16 routes.
+- Browser audit of all 10 routes on the production build at 390x844: **0 contrast failures,
+  0 sub-44px targets, 0 unnamed controls, 0 horizontal overflow.**
+- Full quest loop driven end-to-end in the browser: start quest -> answer -> hint 1 ->
+  hint 2 -> reveal -> Teach Me -> 3 lesson steps -> fresh check problem -> celebration ->
+  level-up overlay (L2 -> L3 on two skills) -> results with level changes and per-problem rows.
+- Grown-up gate verified on both paths (wrong answer keeps the player + shows an alert;
+  correct answer removes them and the first-run hero appears).
+
+### Remaining gaps
+
+- `npm audit --audit-level=high` still fails: 5 advisories (1 critical, 4 high) whose only
+  fix is `next@16`, which requires React 19. Non-exploitable in this app's shape (no
+  middleware, server actions, route handlers or `next/image`; Linux hosting), and left as a
+  documented non-blocking CI step rather than a risky end-of-pass major upgrade.
+- `exportBackup()` still covers 6 of the 10 per-kid storage suffixes.
+- `/favicon.ico` direct requests 404 (icon surface is declared via `/icon.svg`).
+- `supabase/seed.sql` still seeds only the 45 grade-4 skills.
